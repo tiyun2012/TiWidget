@@ -17,6 +17,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\auto_build_and_check.ps1 -Con
 powershell -ExecutionPolicy Bypass -File .\scripts\auto_build_and_check.ps1 -Config Debug -RunEdgeCases -CheckResources -RunAnalysis
 ```
 
+Optional IntelliSense context validation in the same run:
+`-CheckIntelliSense`
+
 ### Nightly mode (full checks + archived artifacts)
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\auto_build_and_check.ps1 -Config Debug -Nightly
@@ -33,6 +36,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_event_automation.ps1 -Con
 ### Analyze latest logs
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\analyze_logs.ps1
+```
+
+### IntelliSense sanity check (CMake + key targets)
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check_intellisense.ps1 -Config Debug -Reconfigure
 ```
 
 ### Run edge-case scenarios only

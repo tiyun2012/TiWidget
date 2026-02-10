@@ -20,6 +20,7 @@ class DockContainer;
 class DockManager;
 class DockLayout;
 class WindowFrame;
+class WindowManager;
 
 // -------------------------------------------------------------------
 // DockWidget (analogous to QDockWidget)

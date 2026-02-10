@@ -7,6 +7,11 @@
             "intelliSenseMode": "windows-msvc-x64",
             "cppStandard": "c++17",
             "cStandard": "c17",
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/widgetsBase",
+                "${workspaceFolder}/**"
+            ],
             "defines": [
                 "UNICODE",
                 "_UNICODE",

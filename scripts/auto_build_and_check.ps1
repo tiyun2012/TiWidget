@@ -13,6 +13,7 @@ param(
     [int]$NightlyKeep = 14,
     [switch]$VisualValidation,
     [switch]$RunPerformance,
+    [switch]$CheckIntelliSense,
     [switch]$UpdatePerfBaseline,
     [int]$PerfIterations = 3,
     [int]$PerfThresholdPct = 20,
@@ -33,6 +34,7 @@ $doAnalyzeCode = $AnalyzeCode.IsPresent
 $doRunAnalysis = $RunAnalysis.IsPresent
 $doVisualValidation = $VisualValidation.IsPresent
 $doRunPerformance = $RunPerformance.IsPresent
+$doCheckIntelliSense = $CheckIntelliSense.IsPresent
 
 if ($Nightly) {
     # Nightly mode runs the full quality sweep by default.
@@ -45,6 +47,7 @@ if ($Nightly) {
     $doRunAnalysis = $true
     $doVisualValidation = $true
     $doRunPerformance = $true
+    $doCheckIntelliSense = $true
 }
 
 $stepResults = @()
@@ -109,6 +112,15 @@ try {
                 -DWB_BUILD_STANDALONE=ON `
                 -DBUILD_TESTING=ON | Out-Host
             Assert-LastExit "CMake configure failed"
+        }
+    }
+
+    if ($doCheckIntelliSense) {
+        Invoke-Step "IntelliSenseSanity" {
+            $intelliSenseArgs = @("-ExecutionPolicy", "Bypass", "-File", ".\scripts\check_intellisense.ps1", "-Config", $Config)
+            if ($doReconfigure) { $intelliSenseArgs += "-Reconfigure" }
+            powershell @intelliSenseArgs | Out-Host
+            Assert-LastExit "IntelliSense sanity failed"
         }
     }
 
