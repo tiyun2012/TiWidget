@@ -1,0 +1,20 @@
+{
+    "cmake.configureOnOpen": true,
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.buildDirectory": "${workspaceFolder}/build_dx12",
+    "cmake.configureArgs": [
+        "-DWB_BUILD_DX12_DEMO=ON",
+        "-DCMAKE_CXX_STANDARD=17"
+    ],
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+    "C_Cpp.default.cppStandard": "c++17",
+    "C_Cpp.default.defines": [
+        "UNICODE",
+        "_UNICODE",
+        "WIN32_LEAN_AND_MEAN",
+        "NOMINMAX",
+        "_WIN32_WINNT=0x0A00",
+        "WINVER=0x0A00"
+    ]
+}
