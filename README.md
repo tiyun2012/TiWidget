@@ -2,6 +2,13 @@
 
 ## Automation Quick Start
 
+Debug guide:
+`docs/DEBUG_FLOW_BREAKPOINTS.md`
+
+VS Code multi-app debug setup:
+- Launch config file: `.vscode/launch.json`
+- App launcher scripts: `scripts/launch.ps1` (alias), `scripts/launch_app.ps1`
+
 ### One-command build + checks
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\auto_build_and_check.ps1 -Config Debug -Reconfigure
@@ -41,6 +48,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\analyze_logs.ps1
 ### IntelliSense sanity check (CMake + key targets)
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\check_intellisense.ps1 -Config Debug -Reconfigure
+```
+
+### List available built apps (for debug target selection)
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\launch.ps1 -BuildDir build_dx12 -Config Debug -ListOnly
+```
+
+### Launch app interactively (then use "Attach To Running Process")
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\launch.ps1 -BuildDir build_dx12 -Config Debug
 ```
 
 ### Run edge-case scenarios only
