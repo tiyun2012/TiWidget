@@ -24,8 +24,8 @@ For many executables, use these built-in options:
 
 Helper script:
 
-- `powershell -ExecutionPolicy Bypass -File .\scripts\launch.ps1 -BuildDir build_dx12 -Config Debug -ListOnly`
-- `powershell -ExecutionPolicy Bypass -File .\scripts\launch.ps1 -BuildDir build_dx12 -Config Debug`
+- `powershell -ExecutionPolicy Bypass -File .\scripts\launch_pws.ps1 -BuildDir build_dx12 -Config Debug -ListOnly`
+- `powershell -ExecutionPolicy Bypass -File .\scripts\launch_pws.ps1 -BuildDir build_dx12 -Config Debug`
 
 ## Breakpoint Pack 1: App Startup and Main Loop
 

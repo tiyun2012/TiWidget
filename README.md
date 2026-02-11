@@ -52,12 +52,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check_intellisense.ps1 -Confi
 
 ### List available built apps (for debug target selection)
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\launch.ps1 -BuildDir build_dx12 -Config Debug -ListOnly
+powershell -ExecutionPolicy Bypass -File .\scripts\launch_pws.ps1 -BuildDir build_dx12 -Config Debug -ListOnly
 ```
 
 ### Launch app interactively (then use "Attach To Running Process")
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\launch.ps1 -BuildDir build_dx12 -Config Debug
+powershell -ExecutionPolicy Bypass -File .\scripts\launch_pws.ps1 -BuildDir build_dx12 -Config Debug
 ```
 
 ### Run edge-case scenarios only

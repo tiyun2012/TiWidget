@@ -2248,8 +2248,9 @@ LRESULT CALLBACK DX12Demo::FloatingHostWndProc(HWND hWnd, UINT msg, WPARAM wPara
                 demo->liveNativeMoveRenderInProgress_ = true;
                 try {
                     demo->renderFrame();
-                } catch (...) {
+                } catch (const std::exception& e) {
                     // Keep host window responsive even if a frame fails.
+                    AppendRuntimeError("WM_MOVING", e.what());
                 }
                 demo->liveNativeMoveRenderInProgress_ = false;
             }
@@ -3723,4 +3724,3 @@ bool DX12Demo::runAutomatedEventChecks()
     eventConsole_.logAutomation("automation checks passed");
     return true;
 }
-
