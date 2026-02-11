@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12",
     [ValidateSet("dark", "light", "slate", "template")]
     [string]$Theme = "dark",
     [string]$Baseline = "",
@@ -104,7 +105,7 @@ $env:DF_EVENT_CONSOLE = "0"
 $env:DF_EVENT_VERBOSE = "0"
 $env:DF_THEME = $Theme
 
-$exe = Join-Path $repoRoot "build\bin\$Config\dx12_demo.exe"
+$exe = Join-Path $repoRoot (Join-Path $BuildDir (Join-Path "bin\$Config" "dx12_demo.exe"))
 if (-not (Test-Path $exe)) {
     throw "Executable not found: $exe (build first)"
 }

@@ -2,12 +2,14 @@
 
 ## Automation Quick Start
 
+Canonical build directory: `build_dx12`
+
 Debug guide:
 `docs/DEBUG_FLOW_BREAKPOINTS.md`
 
 VS Code multi-app debug setup:
 - Launch config file: `.vscode/launch.json`
-- App launcher scripts: `scripts/launch.ps1` (alias), `scripts/launch_app.ps1`
+- App launcher scripts: `scripts/launch_pws.ps1` (alias), `scripts/launch_app.ps1`
 
 ### One-command build + checks
 ```powershell

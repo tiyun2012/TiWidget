@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
-    [string]$Config = "Debug"
+    [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +24,7 @@ foreach ($scenario in $scenarios) {
     Write-Host "Running scenario: $($scenario.Name)"
     powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" `
         -Config $Config `
+        -BuildDir $BuildDir `
         -Scenario $scenario.Name `
         -MaxConflicts $scenario.MaxConflicts | Out-Host
     if ($LASTEXITCODE -ne 0) {

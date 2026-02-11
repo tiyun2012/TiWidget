@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12",
     [switch]$SkipCleanLog,
     [switch]$SkipCleanCrash,
     [switch]$ShowConsole,
@@ -48,7 +49,7 @@ if (-not $SkipCleanCrash) {
 
 if (-not $SkipBuild) {
     Write-Host "Building dx12_demo ($Config)..."
-    cmake --build build --config $Config --target dx12_demo | Out-Host
+    cmake --build $BuildDir --config $Config --target dx12_demo | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed with exit code $LASTEXITCODE"
     }
@@ -56,7 +57,7 @@ if (-not $SkipBuild) {
     Write-Host "Skipping build (using existing dx12_demo binary)."
 }
 
-$exe = Join-Path $repoRoot "build\bin\$Config\dx12_demo.exe"
+$exe = Join-Path $repoRoot (Join-Path $BuildDir (Join-Path "bin\$Config" "dx12_demo.exe"))
 if (!(Test-Path $exe)) {
     throw "Executable not found: $exe"
 }

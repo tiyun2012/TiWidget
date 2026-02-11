@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
-    [string]$Config = "Debug"
+    [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,12 +10,12 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
 Write-Host "Building dx12_demo ($Config)..."
-cmake --build build --config $Config --target dx12_demo | Out-Host
+cmake --build $BuildDir --config $Config --target dx12_demo | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
 
-$exe = Join-Path $repoRoot "build\bin\$Config\dx12_demo.exe"
+$exe = Join-Path $repoRoot (Join-Path $BuildDir (Join-Path "bin\$Config" "dx12_demo.exe"))
 if (!(Test-Path $exe)) {
     throw "Executable not found: $exe"
 }

@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12",
     [int]$Iterations = 5,
     [switch]$ShowWindow,
     [int]$VisualizeDelayMs = 0,
@@ -14,7 +15,7 @@ Set-Location $repoRoot
 if ($Iterations -lt 1) { $Iterations = 1 }
 
 Write-Host "Building dx12_demo ($Config)..."
-cmake --build build --config $Config --target dx12_demo | Out-Host
+cmake --build $BuildDir --config $Config --target dx12_demo | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed (exit $LASTEXITCODE)"
 }
@@ -35,6 +36,7 @@ for ($i = 1; $i -le $Iterations; $i++) {
             "-ExecutionPolicy", "Bypass",
             "-File", ".\scripts\run_event_automation.ps1",
             "-Config", $Config,
+            "-BuildDir", $BuildDir,
             "-Scenario", $scenario,
             "-SkipBuild",
             "-VisualizeDelayMs", $VisualizeDelayMs,

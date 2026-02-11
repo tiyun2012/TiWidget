@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12",
     [switch]$Reconfigure,
     [switch]$SkipCtest,
     [switch]$CheckCrashReporter,
@@ -24,6 +25,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+$resolvedBuildDir = $BuildDir
 
 $doReconfigure = $Reconfigure.IsPresent
 $doSkipCtest = $SkipCtest.IsPresent
@@ -105,9 +107,9 @@ try {
         }
     }
 
-    if ($doReconfigure -or -not (Test-Path "build/CMakeCache.txt")) {
+    if ($doReconfigure -or -not (Test-Path (Join-Path $resolvedBuildDir "CMakeCache.txt"))) {
         Invoke-Step "ConfigureCMake" {
-            cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            cmake -S . -B $resolvedBuildDir -G "Visual Studio 17 2022" -A x64 `
                 -DWB_BUILD_DX12_DEMO=ON `
                 -DWB_BUILD_STANDALONE=ON `
                 -DBUILD_TESTING=ON | Out-Host
@@ -117,7 +119,12 @@ try {
 
     if ($doCheckIntelliSense) {
         Invoke-Step "IntelliSenseSanity" {
-            $intelliSenseArgs = @("-ExecutionPolicy", "Bypass", "-File", ".\scripts\check_intellisense.ps1", "-Config", $Config)
+            $intelliSenseArgs = @(
+                "-ExecutionPolicy", "Bypass",
+                "-File", ".\scripts\check_intellisense.ps1",
+                "-Config", $Config,
+                "-BuildDir", $resolvedBuildDir
+            )
             if ($doReconfigure) { $intelliSenseArgs += "-Reconfigure" }
             powershell @intelliSenseArgs | Out-Host
             Assert-LastExit "IntelliSense sanity failed"
@@ -125,29 +132,29 @@ try {
     }
 
     Invoke-Step "BuildAll" {
-        cmake --build build --config $Config | Out-Host
+        cmake --build $resolvedBuildDir --config $Config | Out-Host
         Assert-LastExit "Build failed"
     }
 
     if (-not $doSkipCtest) {
         Invoke-Step "CTest" {
-            ctest --test-dir build -C $Config --output-on-failure | Out-Host
+            ctest --test-dir $resolvedBuildDir -C $Config --output-on-failure | Out-Host
             Assert-LastExit "CTest failed"
         }
     }
 
     Invoke-Step "EventAutomation" {
-        powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config | Out-Host
+        powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -BuildDir $resolvedBuildDir | Out-Host
         Assert-LastExit "Event automation failed"
     }
 
     Invoke-Step "GlobalFloatSync" {
-        powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -Scenario global_float_sync | Out-Host
+        powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -BuildDir $resolvedBuildDir -Scenario global_float_sync | Out-Host
         Assert-LastExit "Global floating sync automation failed"
     }
 
     Invoke-Step "HostTransferStress" {
-        powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -Scenario host_transfer_stress | Out-Host
+        powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -BuildDir $resolvedBuildDir -Scenario host_transfer_stress | Out-Host
         Assert-LastExit "Host transfer stress automation failed"
     }
 
@@ -158,14 +165,14 @@ try {
 
     if ($doRunEdgeCases) {
         Invoke-Step "EdgeCases" {
-            powershell -ExecutionPolicy Bypass -File ".\scripts\test_edge_cases.ps1" -Config $Config | Out-Host
+            powershell -ExecutionPolicy Bypass -File ".\scripts\test_edge_cases.ps1" -Config $Config -BuildDir $resolvedBuildDir | Out-Host
             Assert-LastExit "Edge-case scenarios failed"
         }
     }
 
     if ($doCheckResources) {
         Invoke-Step "ResourceCheck" {
-            powershell -ExecutionPolicy Bypass -File ".\scripts\check_resources.ps1" -Config $Config | Out-Host
+            powershell -ExecutionPolicy Bypass -File ".\scripts\check_resources.ps1" -Config $Config -BuildDir $resolvedBuildDir | Out-Host
             Assert-LastExit "Resource check failed"
         }
     }
@@ -179,7 +186,12 @@ try {
 
     if ($doRunAnalysis) {
         Invoke-Step "AIAnalysisReport" {
-            $analysisArgs = @("-ExecutionPolicy", "Bypass", "-File", ".\scripts\ai_analysis.ps1", "-Config", $Config)
+            $analysisArgs = @(
+                "-ExecutionPolicy", "Bypass",
+                "-File", ".\scripts\ai_analysis.ps1",
+                "-Config", $Config,
+                "-BuildDir", $resolvedBuildDir
+            )
             if ($doRunEdgeCases) { $analysisArgs += "-RunEdgeCases" }
             if ($doCheckResources) { $analysisArgs += "-RunResourceCheck" }
             if ($doAnalyzeCode) { $analysisArgs += "-RunCodeAnalysis" }
@@ -204,6 +216,7 @@ try {
                 "-ExecutionPolicy", "Bypass",
                 "-File", ".\scripts\performance_regression.ps1",
                 "-Config", $Config,
+                "-BuildDir", $resolvedBuildDir,
                 "-Iterations", $PerfIterations,
                 "-ThresholdPct", $PerfThresholdPct,
                 "-RenderFrames", $PerfRenderFrames
@@ -216,14 +229,14 @@ try {
 
     if ($doVisualValidation) {
         Invoke-Step "VisualValidation" {
-            powershell -ExecutionPolicy Bypass -File ".\scripts\visual_validation.ps1" -Config $Config | Out-Host
+            powershell -ExecutionPolicy Bypass -File ".\scripts\visual_validation.ps1" -Config $Config -BuildDir $resolvedBuildDir | Out-Host
             Assert-LastExit "Visual validation failed"
         }
     }
 
     if ($doCheckCrashReporter) {
         Invoke-Step "CrashReporterSmoke" {
-            powershell -ExecutionPolicy Bypass -File ".\scripts\check_crash_reporter.ps1" -Config $Config | Out-Host
+            powershell -ExecutionPolicy Bypass -File ".\scripts\check_crash_reporter.ps1" -Config $Config -BuildDir $resolvedBuildDir | Out-Host
             Assert-LastExit "Crash-reporter smoke test failed"
         }
     }
@@ -257,7 +270,7 @@ try {
         $artifactCandidates = @(
             "event_conflicts.log",
             "crash_report.log",
-            "build\Testing\Temporary\LastTest.log"
+            (Join-Path $resolvedBuildDir "Testing\Temporary\LastTest.log")
         )
         foreach ($path in $artifactCandidates) {
             if (Test-Path $path) {

@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12",
     [switch]$RunEdgeCases,
     [switch]$RunResourceCheck,
     [switch]$RunCodeAnalysis,
@@ -34,12 +35,12 @@ function Invoke-Step {
 }
 
 Invoke-Step -Name "EventAutomation" -Action {
-    powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config | Out-Host
+    powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -BuildDir $BuildDir | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "run_event_automation exit $LASTEXITCODE" }
 }
 
 Invoke-Step -Name "HostTransferStress" -Action {
-    powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -Scenario host_transfer_stress | Out-Host
+    powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" -Config $Config -BuildDir $BuildDir -Scenario host_transfer_stress | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "host_transfer_stress exit $LASTEXITCODE" }
 }
 
@@ -50,14 +51,14 @@ Invoke-Step -Name "LogAnalysis" -Action {
 
 if ($RunEdgeCases) {
     Invoke-Step -Name "EdgeCases" -Action {
-        powershell -ExecutionPolicy Bypass -File ".\scripts\test_edge_cases.ps1" -Config $Config | Out-Host
+        powershell -ExecutionPolicy Bypass -File ".\scripts\test_edge_cases.ps1" -Config $Config -BuildDir $BuildDir | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "test_edge_cases exit $LASTEXITCODE" }
     }
 }
 
 if ($RunResourceCheck) {
     Invoke-Step -Name "ResourceCheck" -Action {
-        powershell -ExecutionPolicy Bypass -File ".\scripts\check_resources.ps1" -Config $Config | Out-Host
+        powershell -ExecutionPolicy Bypass -File ".\scripts\check_resources.ps1" -Config $Config -BuildDir $BuildDir | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "check_resources exit $LASTEXITCODE" }
     }
 }
@@ -75,6 +76,7 @@ if ($RunPerformanceCheck) {
             "-ExecutionPolicy", "Bypass",
             "-File", ".\scripts\performance_regression.ps1",
             "-Config", $Config,
+            "-BuildDir", $BuildDir,
             "-Iterations", $PerfIterations,
             "-ThresholdPct", $PerfThresholdPct,
             "-RenderFrames", $PerfRenderFrames

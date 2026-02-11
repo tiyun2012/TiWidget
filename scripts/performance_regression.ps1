@@ -1,6 +1,7 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Config = "Debug",
+    [string]$BuildDir = "build_dx12",
     [string[]]$Scenarios = @("baseline", "mixed", "resize_stress", "close_all"),
     [int]$Iterations = 3,
     [int]$RenderFrames = 90,
@@ -86,6 +87,7 @@ function Run-ScenarioPerf {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         powershell -ExecutionPolicy Bypass -File ".\scripts\run_event_automation.ps1" `
             -Config $Config `
+            -BuildDir $BuildDir `
             -Scenario $Scenario `
             -SkipBuild `
             -RenderFrames $RenderFrames | Out-Host
