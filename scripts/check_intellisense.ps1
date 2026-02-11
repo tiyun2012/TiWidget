@@ -31,6 +31,24 @@ function Assert-CacheValue {
 
 if ($Reconfigure -or -not (Test-Path (Join-Path $BuildDir "CMakeCache.txt"))) {
     Write-Host "[ConfigureIntelliSenseBuild]"
+    if ($Reconfigure) {
+        $resetCachePath = Join-Path $BuildDir "CMakeCache.txt"
+        $resetFilesPath = Join-Path $BuildDir "CMakeFiles"
+        if (Test-Path $resetCachePath) {
+            try {
+                Remove-Item $resetCachePath -Force -ErrorAction Stop
+            } catch {
+                Write-Host "Warning: could not remove $resetCachePath ($($_.Exception.Message)). Continuing."
+            }
+        }
+        if (Test-Path $resetFilesPath) {
+            try {
+                Remove-Item $resetFilesPath -Recurse -Force -ErrorAction Stop
+            } catch {
+                Write-Host "Warning: could not fully remove $resetFilesPath ($($_.Exception.Message)). Continuing."
+            }
+        }
+    }
     cmake -S . -B $BuildDir -G "Visual Studio 17 2022" -A x64 `
         -DWB_BUILD_DX12_DEMO=ON `
         -DWB_BUILD_STANDALONE=ON `

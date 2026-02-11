@@ -94,6 +94,28 @@ function Assert-LastExit {
     }
 }
 
+function Reset-CMakeConfigureState {
+    param([string]$BuildDirPath)
+
+    $cachePath = Join-Path $BuildDirPath "CMakeCache.txt"
+    $filesPath = Join-Path $BuildDirPath "CMakeFiles"
+
+    if (Test-Path $cachePath) {
+        try {
+            Remove-Item $cachePath -Force -ErrorAction Stop
+        } catch {
+            Write-Host "Warning: could not remove $cachePath ($($_.Exception.Message)). Continuing."
+        }
+    }
+    if (Test-Path $filesPath) {
+        try {
+            Remove-Item $filesPath -Recurse -Force -ErrorAction Stop
+        } catch {
+            Write-Host "Warning: could not fully remove $filesPath ($($_.Exception.Message)). Continuing."
+        }
+    }
+}
+
 try {
     if ($Nightly) {
         $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -109,6 +131,10 @@ try {
 
     if ($doReconfigure -or -not (Test-Path (Join-Path $resolvedBuildDir "CMakeCache.txt"))) {
         Invoke-Step "ConfigureCMake" {
+            if ($doReconfigure) {
+                Write-Host "Resetting CMake cache in $resolvedBuildDir for clean reconfigure..."
+                Reset-CMakeConfigureState -BuildDirPath $resolvedBuildDir
+            }
             cmake -S . -B $resolvedBuildDir -G "Visual Studio 17 2022" -A x64 `
                 -DWB_BUILD_DX12_DEMO=ON `
                 -DWB_BUILD_STANDALONE=ON `
