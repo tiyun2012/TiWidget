@@ -691,8 +691,43 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     addCandidate(nearestEdge, nullptr, edgeBounds, 0);
 
     DockWidget* movingWidget = draggedFloatingWindow_->content();
-    // Inner split docking hints: allow splitting only standalone widgets
-    // (tab containers and their children are treated as atomic).
+    // Tab docking hints: only appear when cursor is inside a real tab/header strip.
+    std::function<void(Node*, int)> collectTabTargets = [&](Node* node, int depth) {
+        if (!node) {
+            return;
+        }
+
+        if (node->type == Node::Type::Widget && node->widget && node->widget != movingWidget) {
+            const DFRect panelBounds = node->widget->bounds();
+            const float headerH = std::clamp(24.0f, 0.0f, std::max(0.0f, panelBounds.height));
+            const DFRect headerRect{panelBounds.x, panelBounds.y, panelBounds.width, headerH};
+            // Keep tab hints strictly inside the panel header strip and aligned
+            // to the bottom edge for a cleaner target.
+            const DFRect tabHintRect = MakeBottomEdgeTabHintRect(headerRect);
+            if (tabHintRect.width > 1.0f && tabHintRect.height > 1.0f && tabHintRect.contains(mousePos)) {
+                addCandidate(DragOverlay::DropZone::Tab, node, tabHintRect, depth);
+            }
+            return;
+        }
+
+        if (node->type == Node::Type::Tab && !node->children.empty()) {
+            const float barH = std::clamp(node->tabBarHeight, 0.0f, std::max(0.0f, node->bounds.height));
+            const DFRect barRect{node->bounds.x, node->bounds.y, node->bounds.width, barH};
+            const DFRect tabHintRect = MakeBottomEdgeTabHintRect(barRect);
+            if (tabHintRect.width > 1.0f && tabHintRect.height > 1.0f && tabHintRect.contains(mousePos)) {
+                addCandidate(DragOverlay::DropZone::Tab, node, tabHintRect, depth);
+            }
+        }
+
+        collectTabTargets(node->first.get(), depth + 1);
+        collectTabTargets(node->second.get(), depth + 1);
+        for (auto& child : node->children) {
+            collectTabTargets(child.get(), depth + 1);
+        }
+    };
+
+    // Inner split docking hints: use fixed-depth edge zones for predictable
+    // hit targets across different panel sizes.
     std::function<void(Node*, int, bool)> collectSplitTargets = [&](Node* node, int depth, bool insideTabContainer) {
         if (!node) {
             return;
@@ -707,7 +742,8 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
 
         const bool isDockableWidget =
             (!insideTabContainer && node->type == Node::Type::Widget && node->widget && node->widget != movingWidget);
-        if (!isDockableWidget) {
+        const bool isDockableTab = (node->type == Node::Type::Tab && !node->children.empty());
+        if (!isDockableWidget && !isDockableTab) {
             return;
         }
 
@@ -716,18 +752,23 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
             return;
         }
 
-        const float zoneW = b.width * 0.25f;
-        const float zoneH = b.height * 0.25f;
+        const float zoneW = std::min(innerSplitSnapZonePx_, b.width * 0.4f);
+        const float zoneH = std::min(innerSplitSnapZonePx_, b.height * 0.4f);
+        const float topOffset =
+            (node->type == Node::Type::Tab)
+                ? std::clamp(node->tabBarHeight, 0.0f, std::max(0.0f, b.height - 1.0f))
+                : 0.0f;
+        const float topZoneH = std::min(zoneH, std::max(0.0f, b.height - topOffset));
         const DFRect leftZone{b.x, b.y, zoneW, b.height};
         const DFRect rightZone{b.x + b.width - zoneW, b.y, zoneW, b.height};
-        const DFRect topZone{b.x, b.y, b.width, zoneH};
+        const DFRect topZone{b.x, b.y + topOffset, b.width, topZoneH};
         const DFRect bottomZone{b.x, b.y + b.height - zoneH, b.width, zoneH};
 
         if (leftZone.contains(mousePos)) {
             addCandidate(DragOverlay::DropZone::Left, node, leftZone, depth);
         } else if (rightZone.contains(mousePos)) {
             addCandidate(DragOverlay::DropZone::Right, node, rightZone, depth);
-        } else if (topZone.contains(mousePos)) {
+        } else if (topZone.height > 1.0f && topZone.contains(mousePos)) {
             addCandidate(DragOverlay::DropZone::Top, node, topZone, depth);
         } else if (bottomZone.contains(mousePos)) {
             addCandidate(DragOverlay::DropZone::Bottom, node, bottomZone, depth);
@@ -735,6 +776,7 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     };
 
     if (mainLayout_) {
+        collectTabTargets(mainLayout_->root(), 1);
         collectSplitTargets(mainLayout_->root(), 1, false);
     }
 
@@ -750,9 +792,6 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     int bestDepth = -1;
     int bestPriority = -1;
     for (const auto& candidate : dropCandidates_) {
-        if (candidate.zone == DragOverlay::DropZone::Tab || candidate.zone == DragOverlay::DropZone::Center) {
-            continue;
-        }
         const bool edgeNearAndMatching = isEdgeZone(candidate.zone) &&
             candidate.zone == nearestEdge &&
             minDist <= edgeDockActivateDistancePx_;
@@ -761,7 +800,9 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         }
         const float area = candidate.bounds.width * candidate.bounds.height;
         int priority = 0;
-        if (isEdgeZone(candidate.zone)) {
+        if (candidate.zone == DragOverlay::DropZone::Tab || candidate.zone == DragOverlay::DropZone::Center) {
+            priority = 5;
+        } else if (isEdgeZone(candidate.zone)) {
             // Inner split candidates outrank root edge candidates.
             priority = (candidate.depth > 0) ? 4 : 3;
         }
@@ -830,9 +871,6 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
     int bestDepth = -1;
     int bestPriority = -1;
     for (const auto& current : dropCandidates_) {
-        if (current.zone == DragOverlay::DropZone::Tab || current.zone == DragOverlay::DropZone::Center) {
-            continue;
-        }
         const bool edgeNearAndMatching = isEdgeZone(current.zone) &&
             current.zone == nearestEdge &&
             minDist <= edgeDockActivateDistancePx_;
@@ -841,7 +879,9 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
         }
         const float area = current.bounds.width * current.bounds.height;
         int priority = 0;
-        if (isEdgeZone(current.zone)) {
+        if (current.zone == DragOverlay::DropZone::Tab || current.zone == DragOverlay::DropZone::Center) {
+            priority = 5;
+        } else if (isEdgeZone(current.zone)) {
             priority = (current.depth > 0) ? 4 : 3;
         }
         if (!candidate ||
@@ -855,9 +895,10 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
         }
     }
 
-    // Treat tab containers as atomic for floating drops.
-    if (candidate &&
-        (candidate->zone == DragOverlay::DropZone::Tab || candidate->zone == DragOverlay::DropZone::Center)) {
+    // Strict tab docking: only allow tabify when mouse-up is inside
+    // the tab highlight rectangle.
+    if (candidate && candidate->zone == DragOverlay::DropZone::Tab &&
+        !candidate->bounds.contains(mousePos)) {
         candidate = nullptr;
     }
 

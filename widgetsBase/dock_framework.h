@@ -185,6 +185,7 @@ private:
     std::vector<DropCandidate> dropCandidates_;
     int highlightedCandidateIndex_ = -1;
     float edgeDockActivateDistancePx_ = 8.0f;
+    float innerSplitSnapZonePx_ = 32.0f;
     std::vector<DockWidget*> widgets_;
 };
 
