@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include "core_types.h"
+#include "dock_theme.h"
 
 namespace df {
 
@@ -14,8 +15,9 @@ public:
 
     void render(Canvas& canvas) {
         if (!visible_) return;
-        const DFColor edgeColor{0.2f, 0.6f, 1.0f, 1.0f};
-        const float edgeThickness = 4.0f;
+        const auto& theme = CurrentTheme();
+        const DFColor edgeColor = theme.overlayAccent;
+        const float edgeThickness = std::clamp(theme.clientAreaBorderThickness * 2.0f, 1.5f, 4.0f);
 
         for (const auto& zone : dropZones_) {
             // Important: DX12Canvas path is non-blended. "Transparent" colors still
@@ -25,10 +27,36 @@ public:
             }
 
             const DFRect& r = zone.bounds;
-            canvas.drawLine({r.x, r.y}, {r.x + r.width, r.y}, edgeColor, edgeThickness);
-            canvas.drawLine({r.x, r.y + r.height}, {r.x + r.width, r.y + r.height}, edgeColor, edgeThickness);
-            canvas.drawLine({r.x, r.y}, {r.x, r.y + r.height}, edgeColor, edgeThickness);
-            canvas.drawLine({r.x + r.width, r.y}, {r.x + r.width, r.y + r.height}, edgeColor, edgeThickness);
+            const float x0 = r.x;
+            const float y0 = r.y;
+            const float x1 = r.x + r.width;
+            const float y1 = r.y + r.height;
+
+            switch (zone.type) {
+            case DropZone::Left:
+                canvas.drawLine({r.x + r.width * 0.5f, y0}, {r.x + r.width * 0.5f, y1}, edgeColor, edgeThickness);
+                break;
+            case DropZone::Right:
+                canvas.drawLine({r.x + r.width * 0.5f, y0}, {r.x + r.width * 0.5f, y1}, edgeColor, edgeThickness);
+                break;
+            case DropZone::Top:
+                canvas.drawLine({x0, r.y + r.height * 0.5f}, {x1, r.y + r.height * 0.5f}, edgeColor, edgeThickness);
+                break;
+            case DropZone::Bottom:
+                canvas.drawLine({x0, r.y + r.height * 0.5f}, {x1, r.y + r.height * 0.5f}, edgeColor, edgeThickness);
+                break;
+            case DropZone::Center:
+            case DropZone::Tab:
+                // Keep center/tab hints as rectangles.
+                canvas.drawLine({x0, y0}, {x1, y0}, edgeColor, edgeThickness);
+                canvas.drawLine({x0, y1}, {x1, y1}, edgeColor, edgeThickness);
+                canvas.drawLine({x0, y0}, {x0, y1}, edgeColor, edgeThickness);
+                canvas.drawLine({x1, y0}, {x1, y1}, edgeColor, edgeThickness);
+                break;
+            case DropZone::None:
+            default:
+                break;
+            }
         }
         if (draggedWidget_) {
             canvas.drawRectangle(dragPreview_, previewColor_);

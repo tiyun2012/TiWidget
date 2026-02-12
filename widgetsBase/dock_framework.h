@@ -212,7 +212,7 @@ private:
     DragOverlay::DropZone popupTraceZone_ = DragOverlay::DropZone::None;
     void* popupTraceTarget_ = nullptr;
     int popupTraceDepth_ = -1;
-    float rootDockHeaderInsetPx_ = 40.0f;
+    float rootDockHeaderInsetPx_ = 0.0f;
     float edgeDockActivateDistancePx_ = 8.0f;
     float innerSplitSnapZonePx_ = 32.0f;
     std::vector<DockWidget*> widgets_;

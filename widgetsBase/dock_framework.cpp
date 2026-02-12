@@ -810,6 +810,12 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         return;
     }
 
+    // Rebuild node bounds in root/container coordinates before collecting hints.
+    // This avoids stale offsets right after a dock operation followed by another drag.
+    if (mainLayout_) {
+        mainLayout_->update(mainContainerBounds_);
+    }
+
     auto tracePopupHover = [this, &mousePos](const DropCandidate* hovered, const char* reason) {
         if (!hovered) {
             if (popupTraceActive_) {
@@ -914,15 +920,73 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         return;
     }
 
-    auto addCandidate = [this](DragOverlay::DropZone zone, Node* target, const DFRect& bounds, int depth) {
-        if (bounds.width <= 1.0f || bounds.height <= 1.0f) {
+    auto rectIntersection = [](const DFRect& a, const DFRect& b) -> DFRect {
+        const float x0 = std::max(a.x, b.x);
+        const float y0 = std::max(a.y, b.y);
+        const float x1 = std::min(a.x + a.width, b.x + b.width);
+        const float y1 = std::min(a.y + a.height, b.y + b.height);
+        return {
+            x0,
+            y0,
+            std::max(0.0f, x1 - x0),
+            std::max(0.0f, y1 - y0)
+        };
+    };
+
+    auto rectArea = [](const DFRect& r) -> float {
+        return std::max(0.0f, r.width) * std::max(0.0f, r.height);
+    };
+
+    auto resolveNodeBoundsToRoot = [&](const DFRect& nodeBounds, const DFRect* parentRootBounds) -> DFRect {
+        if (!parentRootBounds) {
+            return nodeBounds;
+        }
+
+        // Some call paths provide child-local bounds. Normalize to parent/root space
+        // so docking hints always render in the same coordinate system.
+        const float eps = 1.0f;
+        const bool fitsParentAsAbsolute =
+            nodeBounds.x >= parentRootBounds->x - eps &&
+            nodeBounds.y >= parentRootBounds->y - eps &&
+            nodeBounds.x + nodeBounds.width <= parentRootBounds->x + parentRootBounds->width + eps &&
+            nodeBounds.y + nodeBounds.height <= parentRootBounds->y + parentRootBounds->height + eps;
+        const bool fitsParentAsLocal =
+            nodeBounds.x >= -eps &&
+            nodeBounds.y >= -eps &&
+            nodeBounds.x + nodeBounds.width <= parentRootBounds->width + eps &&
+            nodeBounds.y + nodeBounds.height <= parentRootBounds->height + eps;
+
+        if (!fitsParentAsLocal) {
+            return nodeBounds;
+        }
+
+        const DFRect translated{
+            parentRootBounds->x + nodeBounds.x,
+            parentRootBounds->y + nodeBounds.y,
+            nodeBounds.width,
+            nodeBounds.height
+        };
+
+        if (!fitsParentAsAbsolute) {
+            return translated;
+        }
+
+        // Ambiguous case (near origin): pick the variant that better overlaps parent.
+        const float rawOverlap = rectArea(rectIntersection(nodeBounds, *parentRootBounds));
+        const float translatedOverlap = rectArea(rectIntersection(translated, *parentRootBounds));
+        return (translatedOverlap > rawOverlap + 0.5f) ? translated : nodeBounds;
+    };
+
+    auto addCandidate = [this, &rootContainer, &rectIntersection](DragOverlay::DropZone zone, Node* target, const DFRect& bounds, int depth) {
+        const DFRect clipped = rectIntersection(bounds, rootContainer);
+        if (clipped.width <= 1.0f || clipped.height <= 1.0f) {
             return;
         }
-        const size_t overlayIndex = overlay_.addZone(bounds, zone);
+        const size_t overlayIndex = overlay_.addZone(clipped, zone);
         DropCandidate entry;
         entry.zone = zone;
         entry.target = target;
-        entry.bounds = bounds;
+        entry.bounds = clipped;
         entry.overlayIndex = overlayIndex;
         entry.depth = depth;
         dropCandidates_.push_back(entry);
@@ -950,22 +1014,43 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     }
     (void)nearestDist;
 
-    // Edge hints: 3x thicker than before for clearer docking affordance.
-    const float sideW = 2.0f * 3.0f;
-    const float sideH = 2.0f * 3.0f;
+    // Keep edge hints consistent with client-edge language.
+    const auto& theme = CurrentTheme();
+    const float edgeThickness = std::clamp(theme.clientAreaBorderThickness * 2.0f, 1.5f, 4.0f);
+    const float edgeInset = std::clamp(edgeThickness * 0.75f, 1.0f, 2.0f);
     DFRect edgeBounds{};
     switch (nearestEdge) {
     case DragOverlay::DropZone::Left:
-        edgeBounds = {rootContainer.x, rootContainer.y, sideW, rootContainer.height};
+        edgeBounds = {
+            rootContainer.x + edgeInset,
+            rootContainer.y + edgeInset,
+            edgeThickness,
+            std::max(0.0f, rootContainer.height - edgeInset * 2.0f)
+        };
         break;
     case DragOverlay::DropZone::Right:
-        edgeBounds = {rootContainer.x + rootContainer.width - sideW, rootContainer.y, sideW, rootContainer.height};
+        edgeBounds = {
+            rootContainer.x + rootContainer.width - edgeInset - edgeThickness,
+            rootContainer.y + edgeInset,
+            edgeThickness,
+            std::max(0.0f, rootContainer.height - edgeInset * 2.0f)
+        };
         break;
     case DragOverlay::DropZone::Top:
-        edgeBounds = {rootContainer.x, rootContainer.y, rootContainer.width, sideH};
+        edgeBounds = {
+            rootContainer.x + edgeInset,
+            rootContainer.y + edgeInset,
+            std::max(0.0f, rootContainer.width - edgeInset * 2.0f),
+            edgeThickness
+        };
         break;
     case DragOverlay::DropZone::Bottom:
-        edgeBounds = {rootContainer.x, rootContainer.y + rootContainer.height - sideH, rootContainer.width, sideH};
+        edgeBounds = {
+            rootContainer.x + edgeInset,
+            rootContainer.y + rootContainer.height - edgeInset - edgeThickness,
+            std::max(0.0f, rootContainer.width - edgeInset * 2.0f),
+            edgeThickness
+        };
         break;
     case DragOverlay::DropZone::None:
     case DragOverlay::DropZone::Center:
@@ -977,13 +1062,14 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
 
     DockWidget* movingWidget = draggedFloatingWindow_->content();
     // Tab docking hints: only appear when cursor is inside a real tab/header strip.
-    std::function<void(Node*, int)> collectTabTargets = [&](Node* node, int depth) {
+    std::function<void(Node*, int, const DFRect*)> collectTabTargets = [&](Node* node, int depth, const DFRect* parentRootBounds) {
         if (!node) {
             return;
         }
+        const DFRect nodeBoundsRoot = resolveNodeBoundsToRoot(node->bounds, parentRootBounds);
 
         if (node->type == Node::Type::Widget && node->widget && node->widget != movingWidget) {
-            const DFRect panelBounds = node->widget->bounds();
+            const DFRect panelBounds = nodeBoundsRoot;
             const float headerH = std::clamp(24.0f, 0.0f, std::max(0.0f, panelBounds.height));
             const DFRect headerRect{panelBounds.x, panelBounds.y, panelBounds.width, headerH};
             // Keep tab hints strictly inside the panel header strip and aligned
@@ -996,33 +1082,35 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         }
 
         if (node->type == Node::Type::Tab && !node->children.empty()) {
-            const float barH = std::clamp(node->tabBarHeight, 0.0f, std::max(0.0f, node->bounds.height));
-            const DFRect barRect{node->bounds.x, node->bounds.y, node->bounds.width, barH};
+            const float barH = std::clamp(node->tabBarHeight, 0.0f, std::max(0.0f, nodeBoundsRoot.height));
+            const DFRect barRect{nodeBoundsRoot.x, nodeBoundsRoot.y, nodeBoundsRoot.width, barH};
             const DFRect tabHintRect = MakeBottomEdgeTabHintRect(barRect);
             if (tabHintRect.width > 1.0f && tabHintRect.height > 1.0f && tabHintRect.contains(mousePos)) {
                 addCandidate(DragOverlay::DropZone::Tab, node, tabHintRect, depth);
             }
         }
 
-        collectTabTargets(node->first.get(), depth + 1);
-        collectTabTargets(node->second.get(), depth + 1);
+        collectTabTargets(node->first.get(), depth + 1, &nodeBoundsRoot);
+        collectTabTargets(node->second.get(), depth + 1, &nodeBoundsRoot);
         for (auto& child : node->children) {
-            collectTabTargets(child.get(), depth + 1);
+            collectTabTargets(child.get(), depth + 1, &nodeBoundsRoot);
         }
     };
 
     // Inner split docking hints: use fixed-depth edge zones for predictable
     // hit targets across different panel sizes.
-    std::function<void(Node*, int, bool)> collectSplitTargets = [&](Node* node, int depth, bool insideTabContainer) {
+    std::function<void(Node*, int, bool, const DFRect*)> collectSplitTargets =
+        [&](Node* node, int depth, bool insideTabContainer, const DFRect* parentRootBounds) {
         if (!node) {
             return;
         }
+        const DFRect nodeBoundsRoot = resolveNodeBoundsToRoot(node->bounds, parentRootBounds);
 
         const bool childInsideTabContainer = insideTabContainer || (node->type == Node::Type::Tab);
-        collectSplitTargets(node->first.get(), depth + 1, childInsideTabContainer);
-        collectSplitTargets(node->second.get(), depth + 1, childInsideTabContainer);
+        collectSplitTargets(node->first.get(), depth + 1, childInsideTabContainer, &nodeBoundsRoot);
+        collectSplitTargets(node->second.get(), depth + 1, childInsideTabContainer, &nodeBoundsRoot);
         for (auto& child : node->children) {
-            collectSplitTargets(child.get(), depth + 1, childInsideTabContainer);
+            collectSplitTargets(child.get(), depth + 1, childInsideTabContainer, &nodeBoundsRoot);
         }
 
         const bool isDockableWidget =
@@ -1032,7 +1120,7 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
             return;
         }
 
-        const DFRect b = node->bounds;
+        const DFRect b = nodeBoundsRoot;
         if (b.width < 40.0f || b.height < 40.0f || !b.contains(mousePos)) {
             return;
         }
@@ -1061,8 +1149,9 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     };
 
     if (mainLayout_) {
-        collectTabTargets(mainLayout_->root(), 1);
-        collectSplitTargets(mainLayout_->root(), 1, false);
+        const DFRect rootBoundsSeed = rootContainer;
+        collectTabTargets(mainLayout_->root(), 1, &rootBoundsSeed);
+        collectSplitTargets(mainLayout_->root(), 1, false, &rootBoundsSeed);
     }
 
     auto isEdgeZone = [](DragOverlay::DropZone zone) {
@@ -1077,7 +1166,10 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     int bestDepth = -1;
     int bestPriority = -1;
     for (const auto& candidate : dropCandidates_) {
-        const bool edgeNearAndMatching = isEdgeZone(candidate.zone) &&
+        // Keep root edge docking explicit (cursor must be inside the thin edge strip).
+        // Near-edge activation stays enabled for inner split targets only.
+        const bool edgeNearAndMatching = candidate.depth > 0 &&
+            isEdgeZone(candidate.zone) &&
             candidate.zone == nearestEdge &&
             minDist <= edgeDockActivateDistancePx_;
         if (!candidate.bounds.contains(mousePos) && !edgeNearAndMatching) {
@@ -1173,7 +1265,9 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
     int bestDepth = -1;
     int bestPriority = -1;
     for (const auto& current : dropCandidates_) {
-        const bool edgeNearAndMatching = isEdgeZone(current.zone) &&
+        // Match updateFloatingDrag: near-edge activation is only for inner split targets.
+        const bool edgeNearAndMatching = current.depth > 0 &&
+            isEdgeZone(current.zone) &&
             current.zone == nearestEdge &&
             minDist <= edgeDockActivateDistancePx_;
         if (!current.bounds.contains(mousePos) && !edgeNearAndMatching) {
