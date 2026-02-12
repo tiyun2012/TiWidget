@@ -172,16 +172,92 @@ void DockSplitter::render(Canvas& canvas)
     if (!theme.drawSplitter) {
         return;
     }
-    for (auto& s : splitters_) {
-        DFColor c = theme.splitter;
+    for (const auto& s : splitters_) {
+        const bool dragging = (activeNode_ != nullptr && activeNode_ == s.node);
+        const bool hovered = (hoveredNode_ != nullptr && hoveredNode_ == s.node);
+
+        const DFColor lineColor = theme.splitter;
+        DFColor handleColor = theme.splitter;
         if (theme.drawSplitterStateColors) {
-            if (s.dragging) {
-                c = theme.splitterDrag;
-            } else if (hoveredNode_ && hoveredNode_ == s.node) {
-                c = theme.splitterHover;
+            if (dragging) {
+                handleColor = theme.splitterDrag;
+            } else if (hovered) {
+                handleColor = theme.splitterHover;
             }
         }
-        canvas.drawRectangle(s.bounds, c);
+
+        const float luminance =
+            handleColor.r * 0.2126f +
+            handleColor.g * 0.7152f +
+            handleColor.b * 0.0722f;
+        const DFColor dotColor = (luminance > 0.55f)
+            ? DFColor{0.10f, 0.11f, 0.12f, 1.0f}
+            : DFColor{0.93f, 0.94f, 0.96f, 1.0f};
+
+        if (s.vertical) {
+            const float centerX = s.bounds.x + s.bounds.width * 0.5f;
+            const float handleW = std::min(s.bounds.width, std::clamp(s.bounds.width + 3.0f, 7.0f, 12.0f));
+            const float handleH = std::min(s.bounds.height, std::clamp(s.bounds.height * 0.16f, 48.0f, 140.0f));
+            const DFRect handle{
+                centerX - handleW * 0.5f,
+                s.bounds.y + (s.bounds.height - handleH) * 0.5f,
+                handleW,
+                handleH
+            };
+
+            const float gap = 3.0f;
+            const float topEnd = handle.y - gap;
+            const float bottomStart = handle.y + handle.height + gap;
+            if (topEnd > s.bounds.y) {
+                canvas.drawLine({centerX, s.bounds.y}, {centerX, topEnd}, lineColor, 1.0f);
+            }
+            if (bottomStart < s.bounds.y + s.bounds.height) {
+                canvas.drawLine({centerX, bottomStart}, {centerX, s.bounds.y + s.bounds.height}, lineColor, 1.0f);
+            }
+
+            const float radius = std::min(handle.width, handle.height) * 0.45f;
+            canvas.drawRoundedRectangle(handle, radius, handleColor);
+
+            const float dotSize = std::clamp(handleW * 0.34f, 1.8f, 2.8f);
+            const float dotStep = dotSize * 2.0f;
+            const float dotX = centerX - dotSize * 0.5f;
+            const float dotStartY = handle.y + handle.height * 0.5f - dotStep;
+            for (int i = 0; i < 3; ++i) {
+                canvas.drawRectangle({dotX, dotStartY + i * dotStep, dotSize, dotSize}, dotColor);
+            }
+            continue;
+        }
+
+        const float centerY = s.bounds.y + s.bounds.height * 0.5f;
+        const float handleH = std::min(s.bounds.height, std::clamp(s.bounds.height + 3.0f, 7.0f, 12.0f));
+        const float handleW = std::min(s.bounds.width, std::clamp(s.bounds.width * 0.16f, 48.0f, 140.0f));
+        const DFRect handle{
+            s.bounds.x + (s.bounds.width - handleW) * 0.5f,
+            centerY - handleH * 0.5f,
+            handleW,
+            handleH
+        };
+
+        const float gap = 3.0f;
+        const float leftEnd = handle.x - gap;
+        const float rightStart = handle.x + handle.width + gap;
+        if (leftEnd > s.bounds.x) {
+            canvas.drawLine({s.bounds.x, centerY}, {leftEnd, centerY}, lineColor, 1.0f);
+        }
+        if (rightStart < s.bounds.x + s.bounds.width) {
+            canvas.drawLine({rightStart, centerY}, {s.bounds.x + s.bounds.width, centerY}, lineColor, 1.0f);
+        }
+
+        const float radius = std::min(handle.width, handle.height) * 0.45f;
+        canvas.drawRoundedRectangle(handle, radius, handleColor);
+
+        const float dotSize = std::clamp(handleH * 0.34f, 1.8f, 2.8f);
+        const float dotStep = dotSize * 2.0f;
+        const float dotY = centerY - dotSize * 0.5f;
+        const float dotStartX = handle.x + handle.width * 0.5f - dotStep;
+        for (int i = 0; i < 3; ++i) {
+            canvas.drawRectangle({dotStartX + i * dotStep, dotY, dotSize, dotSize}, dotColor);
+        }
     }
 }
 

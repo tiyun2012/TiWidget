@@ -1,11 +1,12 @@
 #pragma once
 
 #include "core_types.h"
-#include "dock_framework.h"
 #include <memory>
 #include <vector>
 
 namespace df {
+
+class DockWidget;
 
 class WindowFrame {
 public:

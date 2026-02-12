@@ -6,6 +6,7 @@
 #include "icon_module.h"
 #include "window_manager.h"
 #include <algorithm>
+#include <string>
 
 namespace df {
 
@@ -39,6 +40,28 @@ public:
         };
     }
 
+    static DFColor TitleTextColor(const DFColor& bg)
+    {
+        const float luminance = bg.r * 0.2126f + bg.g * 0.7152f + bg.b * 0.0722f;
+        return (luminance > 0.50f) ? DFColor{0.08f, 0.09f, 0.10f, 1.0f} : DFColor{0.90f, 0.91f, 0.94f, 1.0f};
+    }
+
+    static std::string ClipTitle(const std::string& title, float maxWidthPx)
+    {
+        constexpr float kGlyphAdvance = 1.6f * 6.0f; // matches Canvas::drawText bitmap font
+        const int maxChars = (maxWidthPx > 0.0f) ? static_cast<int>(maxWidthPx / kGlyphAdvance) : 0;
+        if (maxChars <= 0) {
+            return {};
+        }
+        if (static_cast<int>(title.size()) <= maxChars) {
+            return title;
+        }
+        if (maxChars <= 3) {
+            return title.substr(0, static_cast<size_t>(maxChars));
+        }
+        return title.substr(0, static_cast<size_t>(maxChars - 3)) + "...";
+    }
+
     DFSize minimumSize() const override {
         DFSize min = DockWidget::minimumSize();
         if (isDocked() && isSingleDocked()) {
@@ -61,6 +84,18 @@ public:
         if (showTitleBar) {
             const DFRect titleBar{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
             dx12->drawRectangle(titleBar, theme.titleBar);
+
+            const float textLeft = titleBar.x + 8.0f;
+            float textRight = titleBar.x + titleBar.width - 8.0f;
+            if (drawTitleIcons) {
+                textRight = std::min(textRight, UndockButtonRect(titleBar).x - 6.0f);
+            }
+            const std::string clippedTitle = ClipTitle(title(), textRight - textLeft);
+            if (!clippedTitle.empty()) {
+                const DFColor textColor = TitleTextColor(theme.titleBar);
+                const float textTop = titleBar.y + (titleBar.height - 11.2f) * 0.5f;
+                dx12->drawText(textLeft, textTop, clippedTitle, textColor);
+            }
 
             if (drawTitleIcons) {
                 // Use live cursor position for reliable hover tinting with no stale state.

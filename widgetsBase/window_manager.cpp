@@ -1,4 +1,5 @@
 #include "window_manager.h"
+#include "dock_framework.h"
 #include "dock_theme.h"
 #include "icon_module.h"
 #include <algorithm>
@@ -275,6 +276,30 @@ void WindowFrame::render(Canvas& canvas)
     canvas.drawRectangle(bounds_, theme.floatingFrame);
     DFRect titleBar{bounds_.x, bounds_.y, bounds_.width, TITLE_BAR_HEIGHT};
     canvas.drawRectangle(titleBar, theme.titleBar);
+
+    if (content_) {
+        const float textLeft = titleBar.x + 8.0f;
+        const float textRight = titleBar.x + titleBar.width - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_PADDING - 8.0f;
+        const float maxWidth = std::max(0.0f, textRight - textLeft);
+        constexpr float kGlyphAdvance = 1.6f * 6.0f;
+        int maxChars = (maxWidth > 0.0f) ? static_cast<int>(maxWidth / kGlyphAdvance) : 0;
+        if (maxChars > 0) {
+            std::string caption = content_->title();
+            if (static_cast<int>(caption.size()) > maxChars) {
+                if (maxChars > 3) {
+                    caption = caption.substr(0, static_cast<size_t>(maxChars - 3)) + "...";
+                } else {
+                    caption = caption.substr(0, static_cast<size_t>(maxChars));
+                }
+            }
+            const float textTop = titleBar.y + (titleBar.height - 11.2f) * 0.5f;
+            const float luminance = theme.titleBar.r * 0.2126f + theme.titleBar.g * 0.7152f + theme.titleBar.b * 0.0722f;
+            const DFColor textColor = (luminance > 0.50f)
+                ? DFColor{0.08f, 0.09f, 0.10f, 1.0f}
+                : DFColor{0.90f, 0.91f, 0.94f, 1.0f};
+            canvas.drawText(textLeft, textTop, caption, textColor);
+        }
+    }
 
     if (closeButtonEnabled()) {
         float closeX = bounds_.x + bounds_.width - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_PADDING;

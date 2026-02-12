@@ -25,7 +25,10 @@ public:
     void drawRoundedRectangle(const DFRect& rect, float radius, const DFColor& color) override;
     void drawRoundedRectangleOutline(const DFRect& rect, float radius, const DFColor& color, float thickness = 1.0f) override;
     void drawLine(const DFPoint& a, const DFPoint& b, const DFColor& color, float thickness = 1.0f) override;
-    void drawText(float /*x*/, float /*y*/, const std::string& /*text*/, const DFColor& /*color*/) override {}
+    void drawText(float x, float y, const std::string& text, const DFColor& color) override
+    {
+        Canvas::drawText(x, y, text, color);
+    }
 
     void setRenderSize(float w, float h) { targetWidth_ = w; targetHeight_ = h; }
     void flush();

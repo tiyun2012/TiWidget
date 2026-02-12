@@ -8,10 +8,85 @@
 #include <functional>
 #include <limits>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
 
 namespace {
 
 using Node = df::DockLayout::Node;
+
+bool PopupTraceEnabled()
+{
+    static const bool enabled = []() {
+        const char* env = std::getenv("DF_DOCK_POPUP_TRACE");
+        if (!env) {
+            return true;
+        }
+        return env[0] != '0';
+    }();
+    return enabled;
+}
+
+void PopupTracePrint(const char* format, ...)
+{
+    if (!PopupTraceEnabled()) {
+        return;
+    }
+    va_list args;
+    va_start(args, format);
+    std::vprintf(format, args);
+    va_end(args);
+    std::printf("\n");
+    std::fflush(stdout);
+}
+
+const char* DropZoneName(df::DragOverlay::DropZone zone)
+{
+    switch (zone) {
+    case df::DragOverlay::DropZone::Left: return "left";
+    case df::DragOverlay::DropZone::Right: return "right";
+    case df::DragOverlay::DropZone::Top: return "top";
+    case df::DragOverlay::DropZone::Bottom: return "bottom";
+    case df::DragOverlay::DropZone::Center: return "center";
+    case df::DragOverlay::DropZone::Tab: return "tab";
+    case df::DragOverlay::DropZone::None:
+    default:
+        return "none";
+    }
+}
+
+const char* NodeTypeName(const Node* node)
+{
+    if (!node) {
+        return "root";
+    }
+    switch (node->type) {
+    case Node::Type::Widget: return "widget";
+    case Node::Type::Split: return "split";
+    case Node::Type::Tab: return "tab";
+    default:
+        return "unknown";
+    }
+}
+
+const char* NodePrimaryWidgetTitle(const Node* node)
+{
+    if (!node) {
+        return "";
+    }
+    if (node->type == Node::Type::Widget && node->widget) {
+        return node->widget->title().c_str();
+    }
+    if (node->type == Node::Type::Tab && !node->children.empty()) {
+        const int activeTab = std::clamp(node->activeTab, 0, static_cast<int>(node->children.size()) - 1);
+        const auto& active = node->children[static_cast<size_t>(activeTab)];
+        if (active && active->type == Node::Type::Widget && active->widget) {
+            return active->widget->title().c_str();
+        }
+    }
+    return "";
+}
 
 std::unique_ptr<Node>* FindNodeHandle(std::unique_ptr<Node>& node, Node* target)
 {
@@ -193,14 +268,18 @@ DFRect OffsetAndShrinkRect(const DFRect& rect, float offsetX, float offsetY, flo
 
 DFRect MakeBottomEdgeTabHintRect(const DFRect& stripRect)
 {
-    // Keep tab hints close to the header bottom edge (Qt-like drop affordance).
+    // Keep tab hints close to the header bottom edge (Qt-like drop affordance),
+    // but avoid full-width strips on large panels (hard to read/aim).
     const DFRect inner = InsetRect(stripRect, 3.0f, 1.0f);
     const float hintH = std::clamp(inner.height * 0.28f, 4.0f, 8.0f);
+    const float preferredW = std::clamp(inner.width * 0.28f, 84.0f, 220.0f);
+    const float hintW = std::min(inner.width, preferredW);
+    const float x = inner.x + std::max(0.0f, (inner.width - hintW) * 0.5f);
     const float y = inner.y + std::max(0.0f, inner.height - hintH - 1.0f);
     return {
-        inner.x,
+        x,
         y,
-        inner.width,
+        hintW,
         hintH
     };
 }
@@ -474,6 +553,17 @@ void DockManager::startDrag(DockWidget* widget, const DFPoint& mousePos)
     drag_.currentPos = mousePos;
     drag_.startBounds = widget ? widget->bounds() : DFRect{};
     drag_.active = widget != nullptr;
+    if (widget) {
+        PopupTracePrint(
+            "[popup] dock_drag_begin widget=\"%s\" mouse=(%.1f,%.1f) bounds=(%.1f,%.1f %.1fx%.1f)",
+            widget->title().c_str(),
+            mousePos.x,
+            mousePos.y,
+            drag_.startBounds.x,
+            drag_.startBounds.y,
+            drag_.startBounds.width,
+            drag_.startBounds.height);
+    }
 }
 
 void DockManager::updateDrag(const DFPoint& mousePos)
@@ -502,6 +592,11 @@ void DockManager::updateDrag(const DFPoint& mousePos)
         const bool movedEnough = distanceSq > undockDistanceSq;
         if (drag_.widget->isSingleDocked() && movedEnough) {
             DockWidget* widget = drag_.widget;
+            PopupTracePrint(
+                "[popup] undock_trigger widget=\"%s\" drag_distance=%.1f threshold=%.1f",
+                widget ? widget->title().c_str() : "",
+                std::sqrt(distanceSq),
+                std::sqrt(undockDistanceSq));
             endDrag();
             startUndockDrag(widget, mousePos);
             return;
@@ -537,6 +632,9 @@ void DockManager::updateDrag(const DFPoint& mousePos)
 
 void DockManager::endDrag()
 {
+    if (drag_.active && drag_.widget) {
+        PopupTracePrint("[popup] dock_drag_end widget=\"%s\"", drag_.widget->title().c_str());
+    }
     drag_ = DragData{};
 }
 
@@ -588,6 +686,11 @@ void DockManager::startUndockDrag(DockWidget* widget, const DFPoint& mousePos)
     if (!widget || widget->isFloating() || !mainLayout_) {
         return;
     }
+    PopupTracePrint(
+        "[popup] undock_begin widget=\"%s\" mouse=(%.1f,%.1f)",
+        widget->title().c_str(),
+        mousePos.x,
+        mousePos.y);
 
     std::unique_ptr<Node> root = mainLayout_->takeRoot();
     if (!root) {
@@ -616,6 +719,13 @@ void DockManager::startUndockDrag(DockWidget* widget, const DFPoint& mousePos)
 
     auto* frame = WindowManager::instance().createFloatingWindow(widget, bounds);
     if (frame) {
+        PopupTracePrint(
+            "[popup] undock_window_created widget=\"%s\" float_bounds=(%.1f,%.1f %.1fx%.1f)",
+            widget->title().c_str(),
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height);
         startFloatingDrag(frame, mousePos);
     }
 }
@@ -673,6 +783,21 @@ void DockManager::startFloatingDrag(WindowFrame* window, const DFPoint& mousePos
     // Move the real floating widget while dragging; no separate ghost preview.
     overlay_.setDraggedWidget(nullptr);
     overlay_.setPreview({});
+    popupTraceActive_ = false;
+    popupTraceZone_ = DragOverlay::DropZone::None;
+    popupTraceTarget_ = nullptr;
+    popupTraceDepth_ = -1;
+
+    const DockWidget* content = window->content();
+    PopupTracePrint(
+        "[popup] floating_drag_begin widget=\"%s\" mouse=(%.1f,%.1f) float_bounds=(%.1f,%.1f %.1fx%.1f)",
+        content ? content->title().c_str() : "",
+        mousePos.x,
+        mousePos.y,
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height);
 }
 
 void DockManager::updateFloatingDrag(const DFPoint& mousePos)
@@ -684,6 +809,50 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         cancelFloatingDrag();
         return;
     }
+
+    auto tracePopupHover = [this, &mousePos](const DropCandidate* hovered, const char* reason) {
+        if (!hovered) {
+            if (popupTraceActive_) {
+                PopupTracePrint(
+                    "[popup] hover_clear reason=%s mouse=(%.1f,%.1f)",
+                    reason ? reason : "none",
+                    mousePos.x,
+                    mousePos.y);
+            }
+            popupTraceActive_ = false;
+            popupTraceZone_ = DragOverlay::DropZone::None;
+            popupTraceTarget_ = nullptr;
+            popupTraceDepth_ = -1;
+            return;
+        }
+
+        const bool changed = !popupTraceActive_ ||
+            popupTraceZone_ != hovered->zone ||
+            popupTraceTarget_ != hovered->target ||
+            popupTraceDepth_ != hovered->depth;
+        if (!changed) {
+            return;
+        }
+
+        const Node* node = static_cast<const Node*>(hovered->target);
+        PopupTracePrint(
+            "[popup] hover zone=%s depth=%d target_type=%s target_title=\"%s\" rect=(%.1f,%.1f %.1fx%.1f) mouse=(%.1f,%.1f)",
+            DropZoneName(hovered->zone),
+            hovered->depth,
+            NodeTypeName(node),
+            NodePrimaryWidgetTitle(node),
+            hovered->bounds.x,
+            hovered->bounds.y,
+            hovered->bounds.width,
+            hovered->bounds.height,
+            mousePos.x,
+            mousePos.y);
+
+        popupTraceActive_ = true;
+        popupTraceZone_ = hovered->zone;
+        popupTraceTarget_ = hovered->target;
+        popupTraceDepth_ = hovered->depth;
+    };
 
     // Keep the actual floating window synced with the cursor during drag.
     DFRect moved = draggedFloatingWindow_->bounds();
@@ -709,6 +878,7 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     dropCandidates_.clear();
     highlightedCandidateIndex_ = -1;
     if (mainContainerBounds_.width <= 0.0f || mainContainerBounds_.height <= 0.0f) {
+        tracePopupHover(nullptr, "no_main_container");
         return;
     }
 
@@ -724,6 +894,7 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         std::max(0.0f, mainContainerBounds_.height - headerInset)
     };
     if (rootContainer.width <= 1.0f || rootContainer.height <= 1.0f) {
+        tracePopupHover(nullptr, "invalid_root_container");
         return;
     }
 
@@ -739,6 +910,7 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     if (!expandedContainer.contains(mousePos)) {
         overlay_.highlightZone(DragOverlay::DropZone::None);
         highlightedCandidateIndex_ = -1;
+        tracePopupHover(nullptr, "outside_root_container");
         return;
     }
 
@@ -932,9 +1104,11 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     if (hovered) {
         overlay_.highlightZoneIndex(hovered->overlayIndex);
         highlightedCandidateIndex_ = static_cast<int>(hovered->overlayIndex);
+        tracePopupHover(hovered, "hover");
     } else {
         overlay_.highlightZone(DragOverlay::DropZone::None);
         highlightedCandidateIndex_ = -1;
+        tracePopupHover(nullptr, "no_popup_target");
     }
 }
 
@@ -944,6 +1118,7 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
         return;
     }
     if (!WindowManager::instance().hasWindow(draggedFloatingWindow_)) {
+        PopupTracePrint("[popup] floating_drag_end reason=window_missing");
         cancelFloatingDrag();
         return;
     }
@@ -1032,11 +1207,17 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
     WindowFrame* sourceWindow = draggedFloatingWindow_;
     DockWidget* widget = sourceWindow->content();
     if (!widget) {
+        PopupTracePrint("[popup] drop_result mode=cancel reason=no_widget");
         cancelFloatingDrag();
         return;
     }
 
     if (!mainLayout_) {
+        PopupTracePrint(
+            "[popup] drop_result mode=floating reason=no_layout widget=\"%s\" mouse=(%.1f,%.1f)",
+            widget->title().c_str(),
+            mousePos.x,
+            mousePos.y);
         DFRect moved = sourceWindow->bounds();
         moved.x = mousePos.x - dragGrabOffset_.x;
         moved.y = mousePos.y - dragGrabOffset_.y;
@@ -1062,6 +1243,11 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
         // Only suppress accidental drops when no explicit drop hint is active.
         const bool allowDockOnHint = (candidate != nullptr);
         if (!allowDockOnHint) {
+            PopupTracePrint(
+                "[popup] drop_result mode=floating reason=suppressed widget=\"%s\" mouse=(%.1f,%.1f)",
+                widget->title().c_str(),
+                mousePos.x,
+                mousePos.y);
             DFRect moved = sourceWindow->bounds();
             moved.x = mousePos.x - dragGrabOffset_.x;
             moved.y = mousePos.y - dragGrabOffset_.y;
@@ -1085,6 +1271,11 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
     }
 
     if (!candidate) {
+        PopupTracePrint(
+            "[popup] drop_result mode=floating reason=no_popup widget=\"%s\" mouse=(%.1f,%.1f)",
+            widget->title().c_str(),
+            mousePos.x,
+            mousePos.y);
         DFRect moved = sourceWindow->bounds();
         moved.x = mousePos.x - dragGrabOffset_.x;
         moved.y = mousePos.y - dragGrabOffset_.y;
@@ -1105,6 +1296,15 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
         cancelFloatingDrag();
         return;
     }
+
+    const Node* targetNodeInfo = static_cast<const Node*>(candidate->target);
+    PopupTracePrint(
+        "[popup] drop_result mode=dock widget=\"%s\" zone=%s depth=%d target_type=%s target_title=\"%s\"",
+        widget->title().c_str(),
+        DropZoneName(candidate->zone),
+        candidate->depth,
+        NodeTypeName(targetNodeInfo),
+        NodePrimaryWidgetTitle(targetNodeInfo));
 
     WindowManager::instance().destroyWindow(sourceWindow);
 
@@ -1214,12 +1414,19 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
 
 void DockManager::cancelFloatingDrag()
 {
+    if (draggedFloatingWindow_) {
+        PopupTracePrint("[popup] floating_drag_cancel");
+    }
     overlay_.clearZones();
     overlay_.setVisible(false);
     overlay_.setPreview({});
     highlightedCandidateIndex_ = -1;
     suppressDockOnNextDrop_ = false;
     draggedFloatingWindow_ = nullptr;
+    popupTraceActive_ = false;
+    popupTraceZone_ = DragOverlay::DropZone::None;
+    popupTraceTarget_ = nullptr;
+    popupTraceDepth_ = -1;
 }
 
 void DockManager::suppressDockForActiveFloatingDrag()

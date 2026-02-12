@@ -208,6 +208,10 @@ private:
     };
     std::vector<DropCandidate> dropCandidates_;
     int highlightedCandidateIndex_ = -1;
+    bool popupTraceActive_ = false;
+    DragOverlay::DropZone popupTraceZone_ = DragOverlay::DropZone::None;
+    void* popupTraceTarget_ = nullptr;
+    int popupTraceDepth_ = -1;
     float rootDockHeaderInsetPx_ = 40.0f;
     float edgeDockActivateDistancePx_ = 8.0f;
     float innerSplitSnapZonePx_ = 32.0f;
