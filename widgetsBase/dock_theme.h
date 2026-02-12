@@ -33,7 +33,7 @@ struct DockTheme {
     DFColor clientAreaBorder{DFColorFromHex(0x5C3E94)};
     float clientAreaPadding = 2.0f;
     float clientAreaCornerRadius = 3.333f;
-    float clientAreaBorderThickness = 1.5f;
+    float clientAreaBorderThickness = 0.75f;
 
     // Shared visual feature toggles for quality/performance tuning.
     bool drawClientArea = true;

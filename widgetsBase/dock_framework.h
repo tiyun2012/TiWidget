@@ -98,7 +98,7 @@ private:
     bool childrenFloat_ = true;
     float clientAreaPadding_ = 2.0f;
     float clientAreaCornerRadius_ = 3.333f;
-    float clientAreaBorderThickness_ = 1.5f;
+    float clientAreaBorderThickness_ = 0.75f;
     VisualOptions visualOptions_{};
 };
 

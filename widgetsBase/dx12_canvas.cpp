@@ -241,7 +241,7 @@ void DX12Canvas::drawRoundedRectangleOutline(const DFRect& rect, float radius, c
 
     const float maxRadius = std::min(rect.width, rect.height) * 0.5f;
     const float r = std::clamp(radius, 0.0f, maxRadius);
-    const float t = std::max(1.0f, thickness);
+    const float t = std::max(0.5f, thickness);
 
     if (r <= 0.01f) {
         drawRectangle({rect.x, rect.y, rect.width, t}, color);

@@ -60,7 +60,7 @@ public:
         if (rect.width <= 0.0f || rect.height <= 0.0f) {
             return;
         }
-        const float t = std::max(1.0f, thickness);
+        const float t = std::max(0.5f, thickness);
         drawRectangle({rect.x, rect.y, rect.width, t}, color);
         drawRectangle({rect.x, rect.y + std::max(0.0f, rect.height - t), rect.width, t}, color);
         drawRectangle({rect.x, rect.y, t, rect.height}, color);

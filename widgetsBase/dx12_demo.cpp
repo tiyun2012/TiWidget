@@ -2220,7 +2220,7 @@ void DX12Demo::renderFrame()
                 mainClientRect,
                 cornerRadius,
                 theme.clientAreaBorder,
-                std::max(1.0f, theme.clientAreaBorderThickness));
+                std::max(0.5f, theme.clientAreaBorderThickness));
         }
     }
     df::DockRenderer renderer;

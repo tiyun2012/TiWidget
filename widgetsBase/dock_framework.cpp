@@ -344,7 +344,7 @@ void DockWidget::paintClientArea(Canvas& canvas, const DFRect& contentBounds) co
             client,
             cornerRadius,
             theme.clientAreaBorder,
-            std::max(1.0f, clientAreaBorderThickness_));
+            std::max(0.5f, clientAreaBorderThickness_));
     }
 }
 
