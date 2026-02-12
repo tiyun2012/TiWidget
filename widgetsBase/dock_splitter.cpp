@@ -169,12 +169,17 @@ void DockSplitter::endDrag()
 void DockSplitter::render(Canvas& canvas)
 {
     const auto& theme = CurrentTheme();
+    if (!theme.drawSplitter) {
+        return;
+    }
     for (auto& s : splitters_) {
         DFColor c = theme.splitter;
-        if (s.dragging) {
-            c = theme.splitterDrag;
-        } else if (hoveredNode_ && hoveredNode_ == s.node) {
-            c = theme.splitterHover;
+        if (theme.drawSplitterStateColors) {
+            if (s.dragging) {
+                c = theme.splitterDrag;
+            } else if (hoveredNode_ && hoveredNode_ == s.node) {
+                c = theme.splitterHover;
+            }
         }
         canvas.drawRectangle(s.bounds, c);
     }

@@ -100,6 +100,15 @@ bool WindowFrame::isInCloseButton(const DFPoint& p) const
            p.y >= closeY && p.y <= closeY + CLOSE_BUTTON_SIZE;
 }
 
+bool WindowFrame::closeButtonEnabled() const
+{
+    const auto& theme = CurrentTheme();
+    if (!theme.drawTitleBarIcons) {
+        return false;
+    }
+    return !content_ || content_->visualOptions().drawTitleBarIcons;
+}
+
 WindowFrame::DragMode WindowFrame::getResizeMode(const DFPoint& p) const
 {
     if (p.x <= bounds_.x + RESIZE_HANDLE_SIZE &&
@@ -128,13 +137,13 @@ WindowFrame::DragMode WindowFrame::getResizeMode(const DFPoint& p) const
 bool WindowFrame::handleEvent(Event& event)
 {
     if (event.type == Event::Type::MouseMove) {
-        closeHovered_ = isInCloseButton({event.x, event.y});
+        closeHovered_ = closeButtonEnabled() && isInCloseButton({event.x, event.y});
     }
 
     if (event.type == Event::Type::MouseDown) {
         DFPoint mousePos{event.x, event.y};
 
-        if (isInCloseButton(mousePos)) {
+        if (closeButtonEnabled() && isInCloseButton(mousePos)) {
             closeHovered_ = true;
             closeRequested_ = true;
             event.handled = true;
@@ -263,32 +272,19 @@ bool WindowFrame::handleEvent(Event& event)
 void WindowFrame::render(Canvas& canvas)
 {
     const auto& theme = CurrentTheme();
-    auto shiftColor = [](const DFColor& c, float delta) -> DFColor {
-        return {
-            std::clamp(c.r + delta, 0.0f, 1.0f),
-            std::clamp(c.g + delta, 0.0f, 1.0f),
-            std::clamp(c.b + delta, 0.0f, 1.0f),
-            c.a
-        };
-    };
     canvas.drawRectangle(bounds_, theme.floatingFrame);
     DFRect titleBar{bounds_.x, bounds_.y, bounds_.width, TITLE_BAR_HEIGHT};
     canvas.drawRectangle(titleBar, theme.titleBar);
 
-    float closeX = bounds_.x + bounds_.width - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_PADDING;
-    float closeY = bounds_.y + CLOSE_BUTTON_PADDING;
-    DFRect closeButton{closeX, closeY, CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE};
-    if (closeHovered_) {
-        canvas.drawRectangle(closeButton, shiftColor(theme.titleBar, 0.10f));
+    if (closeButtonEnabled()) {
+        float closeX = bounds_.x + bounds_.width - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_PADDING;
+        float closeY = bounds_.y + CLOSE_BUTTON_PADDING;
+        DFRect closeButton{closeX, closeY, CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE};
+        DockIconButtonStyle style{};
+        style.roundHoverBackground = true;
+        style.hoverCornerRadius = 4.0f;
+        DrawDockIconButton(canvas, DockIcon::Close, closeButton, theme.titleBar, closeHovered_, style);
     }
-    const DFColor iconBase{0.90f, 0.91f, 0.94f, 1.0f};
-    const DFColor iconHover{1.00f, 1.00f, 1.00f, 1.0f};
-    DrawDockIcon(
-        canvas,
-        DockIcon::Close,
-        closeButton,
-        closeHovered_ ? iconHover : iconBase,
-        closeHovered_ ? 2.2f : 2.0f);
 
     if (content_) content_->paint(canvas);
 }

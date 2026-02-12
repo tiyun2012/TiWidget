@@ -18,6 +18,26 @@ enum class DockIcon {
     SplitBottom
 };
 
+struct DockIconButtonStyle {
+    DFColor iconBase{0.90f, 0.91f, 0.94f, 1.0f};
+    DFColor iconHover{1.00f, 1.00f, 1.00f, 1.0f};
+    float iconThickness = 2.0f;
+    float hoverIconThickness = 2.2f;
+    float hoverBackgroundShift = 0.10f;
+    float hoverCornerRadius = 4.0f;
+    bool roundHoverBackground = false;
+};
+
+inline DFColor ShiftColor(const DFColor& c, float delta)
+{
+    return {
+        std::clamp(c.r + delta, 0.0f, 1.0f),
+        std::clamp(c.g + delta, 0.0f, 1.0f),
+        std::clamp(c.b + delta, 0.0f, 1.0f),
+        c.a
+    };
+}
+
 inline const char* DockIconGlyph(DockIcon icon)
 {
     switch (icon) {
@@ -85,6 +105,32 @@ inline void DrawDockIcon(Canvas& canvas, DockIcon icon, const DFRect& bounds, co
     default:
         break;
     }
+}
+
+inline void DrawDockIconButton(
+    Canvas& canvas,
+    DockIcon icon,
+    const DFRect& bounds,
+    const DFColor& titleBarColor,
+    bool hovered,
+    const DockIconButtonStyle& style = DockIconButtonStyle{})
+{
+    if (hovered) {
+        const DFColor hoverBg = ShiftColor(titleBarColor, style.hoverBackgroundShift);
+        if (style.roundHoverBackground) {
+            const float maxRadius = std::min(bounds.width, bounds.height) * 0.5f;
+            canvas.drawRoundedRectangle(bounds, std::clamp(style.hoverCornerRadius, 0.0f, maxRadius), hoverBg);
+        } else {
+            canvas.drawRectangle(bounds, hoverBg);
+        }
+    }
+
+    DrawDockIcon(
+        canvas,
+        icon,
+        bounds,
+        hovered ? style.iconHover : style.iconBase,
+        hovered ? style.hoverIconThickness : style.iconThickness);
 }
 
 inline void drawDockIcon(Canvas& canvas, DockIcon icon, const DFRect& bounds, const DFColor& color, float thickness = 2.0f)

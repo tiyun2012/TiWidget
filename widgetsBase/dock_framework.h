@@ -28,6 +28,12 @@ class WindowManager;
 class DockWidget {
 public:
     enum class HostType { None, DockedLayout, FloatingWindow };
+    struct VisualOptions {
+        bool drawClientArea = true;
+        bool drawClientAreaBorder = true;
+        bool drawRoundedClientArea = true;
+        bool drawTitleBarIcons = true;
+    };
 
     explicit DockWidget(const std::string& title);
     virtual ~DockWidget();
@@ -63,6 +69,9 @@ public:
     float clientAreaCornerRadius() const { return clientAreaCornerRadius_; }
     void setClientAreaBorderThickness(float thickness);
     float clientAreaBorderThickness() const { return clientAreaBorderThickness_; }
+    void setVisualOptions(const VisualOptions& options) { visualOptions_ = options; }
+    const VisualOptions& visualOptions() const { return visualOptions_; }
+    void setFastVisuals(bool enabled);
     DFRect clientAreaRect(const DFRect& contentBounds) const;
     virtual void paintClientArea(Canvas& canvas, const DFRect& contentBounds) const;
 
@@ -87,9 +96,10 @@ private:
     DFRect bounds_{};
     DFSize minimumSize_{};
     bool childrenFloat_ = true;
-    float clientAreaPadding_ = 8.0f;
-    float clientAreaCornerRadius_ = 10.0f;
+    float clientAreaPadding_ = 2.0f;
+    float clientAreaCornerRadius_ = 3.333f;
     float clientAreaBorderThickness_ = 1.5f;
+    VisualOptions visualOptions_{};
 };
 
 // -------------------------------------------------------------------

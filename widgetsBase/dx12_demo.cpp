@@ -111,6 +111,18 @@ DFColor AdjustColor(const DFColor& c, float delta)
     };
 }
 
+DFRect ComputeMainClientRect(const DFRect& viewRect, const df::DockTheme& theme)
+{
+    // Keep content close to the border while preserving a visible frame.
+    const float pad = std::clamp(theme.clientAreaPadding * 0.5f, 1.0f, 3.0f);
+    return {
+        viewRect.x + pad,
+        viewRect.y + pad,
+        std::max(0.0f, viewRect.width - pad * 2.0f),
+        std::max(0.0f, viewRect.height - pad * 2.0f)
+    };
+}
+
 bool TryParseHexColor(std::string text, DFColor& out);
 COLORREF ToColorRef(const DFColor& c);
 COLORREF ContrastTextColor(const DFColor& bg);
@@ -727,6 +739,11 @@ DX12Demo::DX12Demo(HINSTANCE hInstance)
     showDebugOverlay_ = !automationMode_;
     themeName_ = EnvString("DF_THEME", "dark");
     df::SetThemeByName(themeName_);
+    if (EnvEnabled("DF_FAST_VISUALS", false)) {
+        df::DockTheme theme = df::CurrentTheme();
+        df::ApplyFastVisualPreset(theme);
+        df::SetTheme(theme);
+    }
     const std::string titleBarColorHex = EnvString("DF_TITLE_BAR_COLOR", "");
     if (!titleBarColorHex.empty()) {
         DFColor parsed{};
@@ -939,12 +956,14 @@ void DX12Demo::initDocking()
 void DX12Demo::refreshLayoutState()
 {
     const DFRect viewRect{0.0f, 0.0f, viewport_.Width, viewport_.Height};
-    df::DockManager::instance().setMainLayout(&layout_, viewRect);
-    layout_.update(viewRect);
-    splitter_.updateSplitters(layout_.root(), viewRect);
+    const auto& theme = df::CurrentTheme();
+    const DFRect clientRect = ComputeMainClientRect(viewRect, theme);
+    df::DockManager::instance().setMainLayout(&layout_, clientRect);
+    layout_.update(clientRect);
+    splitter_.updateSplitters(layout_.root(), clientRect);
     tabVisuals_.clear();
     CollectTabVisuals(layout_.root(), tabVisuals_);
-    df::DockManager::instance().setDragBounds(viewRect);
+    df::DockManager::instance().setDragBounds(clientRect);
     // Floating windows use virtual-desktop bounds (multi-monitor) in local client space.
     const DFPoint origin = df::WindowManager::instance().clientOriginScreen();
     const float vx = static_cast<float>(GetSystemMetrics(SM_XVIRTUALSCREEN)) - origin.x;
@@ -1112,6 +1131,12 @@ void DX12Demo::paintNativeFloatingHost(HWND hwnd)
     RECT rc{};
     GetClientRect(hwnd, &rc);
     const auto& theme = df::CurrentTheme();
+    auto* hostWidget = reinterpret_cast<df::DockWidget*>(GetPropW(hwnd, L"DF_FLOAT_WIDGET"));
+    const auto hostVisual = hostWidget ? hostWidget->visualOptions() : df::DockWidget::VisualOptions{};
+    const bool drawClientArea = theme.drawClientArea && hostVisual.drawClientArea;
+    const bool drawClientAreaBorder = theme.drawClientAreaBorder && hostVisual.drawClientAreaBorder;
+    const bool drawRoundedClientArea = theme.drawRoundedClientArea && hostVisual.drawRoundedClientArea;
+    const bool drawTitleIcons = theme.drawTitleBarIcons && hostVisual.drawTitleBarIcons;
     const COLORREF titleColor = ToColorRef(theme.titleBar);
     const COLORREF bodyColor = ToColorRef(theme.dockBackground);
     const COLORREF titleTextColor = ContrastTextColor(theme.titleBar);
@@ -1131,6 +1156,42 @@ void DX12Demo::paintNativeFloatingHost(HWND hwnd)
     FillRect(hdc, &bodyRect, bodyBrush);
     DeleteObject(bodyBrush);
 
+    if (drawClientArea) {
+        const int pad = std::max(0, static_cast<int>(std::lround(theme.clientAreaPadding)));
+        RECT clientRect{
+            rc.left + pad,
+            bodyRect.top + pad,
+            rc.right - pad,
+            rc.bottom - pad
+        };
+        if (clientRect.right > clientRect.left + 2 && clientRect.bottom > clientRect.top + 2) {
+            const int radius = drawRoundedClientArea
+                ? std::max(0, static_cast<int>(std::lround(theme.clientAreaCornerRadius)))
+                : 0;
+            const int borderPx = std::max(1, static_cast<int>(std::lround(theme.clientAreaBorderThickness)));
+            HBRUSH clientBrush = CreateSolidBrush(ToColorRef(theme.clientAreaFill));
+            HPEN clientPen = drawClientAreaBorder
+                ? CreatePen(PS_SOLID, borderPx, ToColorRef(theme.clientAreaBorder))
+                : static_cast<HPEN>(GetStockObject(NULL_PEN));
+            HGDIOBJ oldPenClient = SelectObject(hdc, clientPen);
+            HGDIOBJ oldBrushClient = SelectObject(hdc, clientBrush);
+            RoundRect(
+                hdc,
+                clientRect.left,
+                clientRect.top,
+                clientRect.right,
+                clientRect.bottom,
+                radius * 2,
+                radius * 2);
+            SelectObject(hdc, oldBrushClient);
+            SelectObject(hdc, oldPenClient);
+            DeleteObject(clientBrush);
+            if (drawClientAreaBorder) {
+                DeleteObject(clientPen);
+            }
+        }
+    }
+
     std::wstring title(256, L'\0');
     const int written = GetWindowTextW(hwnd, title.data(), static_cast<int>(title.size()));
     if (written > 0) {
@@ -1139,10 +1200,10 @@ void DX12Demo::paintNativeFloatingHost(HWND hwnd)
         title.clear();
     }
 
-    RECT closeRect = NativeHostCloseRect(rc);
+    RECT closeRect = drawTitleIcons ? NativeHostCloseRect(rc) : RECT{rc.right, 0, rc.right, 0};
     POINT cursor{};
     bool closeHoverActive = false;
-    if (GetCursorPos(&cursor) && ScreenToClient(hwnd, &cursor)) {
+    if (drawTitleIcons && GetCursorPos(&cursor) && ScreenToClient(hwnd, &cursor)) {
         closeHoverActive = PtInRect(&closeRect, cursor) != 0;
     }
 
@@ -1180,21 +1241,23 @@ void DX12Demo::paintNativeFloatingHost(HWND hwnd)
         &textRect,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
-    const DFColor iconColor = closeHoverActive ? closeHover : closeBase;
-    const COLORREF iconRef = ToColorRef(iconColor);
-    HPEN pen = CreatePen(PS_SOLID, 1, iconRef);
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    const int iconPadding = 4;
-    const int ix0 = static_cast<int>(closeRect.left) + iconPadding;
-    const int iy0 = static_cast<int>(closeRect.top) + iconPadding;
-    const int ix1 = std::max(ix0, static_cast<int>(closeRect.right) - iconPadding - 1);
-    const int iy1 = std::max(iy0, static_cast<int>(closeRect.bottom) - iconPadding - 1);
-    MoveToEx(hdc, ix0, iy0, nullptr);
-    LineTo(hdc, ix1, iy1);
-    MoveToEx(hdc, ix0, iy1, nullptr);
-    LineTo(hdc, ix1, iy0);
-    SelectObject(hdc, oldPen);
-    DeleteObject(pen);
+    if (drawTitleIcons) {
+        const DFColor iconColor = closeHoverActive ? closeHover : closeBase;
+        const COLORREF iconRef = ToColorRef(iconColor);
+        HPEN pen = CreatePen(PS_SOLID, 1, iconRef);
+        HGDIOBJ oldPen = SelectObject(hdc, pen);
+        const int iconPadding = 4;
+        const int ix0 = static_cast<int>(closeRect.left) + iconPadding;
+        const int iy0 = static_cast<int>(closeRect.top) + iconPadding;
+        const int ix1 = std::max(ix0, static_cast<int>(closeRect.right) - iconPadding - 1);
+        const int iy1 = std::max(iy0, static_cast<int>(closeRect.bottom) - iconPadding - 1);
+        MoveToEx(hdc, ix0, iy0, nullptr);
+        LineTo(hdc, ix1, iy1);
+        MoveToEx(hdc, ix0, iy1, nullptr);
+        LineTo(hdc, ix1, iy0);
+        SelectObject(hdc, oldPen);
+        DeleteObject(pen);
+    }
 
     EndPaint(hwnd, &ps);
 }
@@ -2138,13 +2201,37 @@ void DX12Demo::renderFrame()
     refreshLayoutState();
     syncNativeFloatingHosts();
     const auto& theme = df::CurrentTheme();
+    const DFRect viewRect{0.0f, 0.0f, viewport_.Width, viewport_.Height};
+    const DFRect mainClientRect = ComputeMainClientRect(viewRect, theme);
+    if (theme.drawClientArea &&
+        mainClientRect.width > 0.0f &&
+        mainClientRect.height > 0.0f) {
+        const float maxRadius = std::min(mainClientRect.width, mainClientRect.height) * 0.5f;
+        const float cornerRadius = theme.drawRoundedClientArea
+            ? std::clamp(theme.clientAreaCornerRadius, 0.0f, maxRadius)
+            : 0.0f;
+        if (cornerRadius > 0.0f) {
+            canvas_->drawRoundedRectangle(mainClientRect, cornerRadius, theme.clientAreaFill);
+        } else {
+            canvas_->drawRectangle(mainClientRect, theme.clientAreaFill);
+        }
+        if (theme.drawClientAreaBorder) {
+            canvas_->drawRoundedRectangleOutline(
+                mainClientRect,
+                cornerRadius,
+                theme.clientAreaBorder,
+                std::max(1.0f, theme.clientAreaBorderThickness));
+        }
+    }
     df::DockRenderer renderer;
     renderer.setMousePosition(lastMousePos_);
     renderer.render(*canvas_, layout_.root());
 
     for (auto& w : widgets_) {
         if (IsRenderableDockWidget(w.get())) {
-            if (hoveredDockWidget_ == w.get() && activeAction_ == ActionOwner::None) {
+            if (theme.drawWidgetHoverOutline &&
+                hoveredDockWidget_ == w.get() &&
+                activeAction_ == ActionOwner::None) {
                 const DFRect b = w->bounds();
                 const DFColor hover = theme.overlayAccentSoft;
                 canvas_->drawRectangle({b.x, b.y, b.width, 2.0f}, hover);
@@ -2401,6 +2488,8 @@ LRESULT CALLBACK DX12Demo::FloatingHostWndProc(HWND hWnd, UINT msg, WPARAM wPara
     switch (msg) {
     case WM_NCHITTEST:
         if (demo && widget) {
+            const auto& theme = df::CurrentTheme();
+            const bool drawTitleIcons = theme.drawTitleBarIcons && widget->visualOptions().drawTitleBarIcons;
             const LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
             if (hit != HTCLIENT) {
                 return hit;
@@ -2414,9 +2503,11 @@ LRESULT CALLBACK DX12Demo::FloatingHostWndProc(HWND hWnd, UINT msg, WPARAM wPara
             }
             RECT rc{};
             GetClientRect(hWnd, &rc);
-            const RECT closeRect = NativeHostCloseRect(rc);
-            if (PtInRect(&closeRect, pt)) {
-                return HTCLIENT;
+            if (drawTitleIcons) {
+                const RECT closeRect = NativeHostCloseRect(rc);
+                if (PtInRect(&closeRect, pt)) {
+                    return HTCLIENT;
+                }
             }
             if (pt.y >= 0 && pt.y < kNativeHostTitleBarHeight) {
                 return HTCAPTION;
@@ -2439,17 +2530,21 @@ LRESULT CALLBACK DX12Demo::FloatingHostWndProc(HWND hWnd, UINT msg, WPARAM wPara
         return DefWindowProcW(hWnd, msg, wParam, lParam);
     case WM_LBUTTONDOWN:
         if (demo && widget) {
+            const auto& theme = df::CurrentTheme();
+            const bool drawTitleIcons = theme.drawTitleBarIcons && widget->visualOptions().drawTitleBarIcons;
             RECT rc{};
             GetClientRect(hWnd, &rc);
-            const RECT closeRect = NativeHostCloseRect(rc);
-            const POINT p{
-                GET_X_LPARAM(lParam),
-                GET_Y_LPARAM(lParam)
-            };
-            if (PtInRect(&closeRect, p)) {
-                demo->pendingNativeHostClose_.push_back(widget);
-                InvalidateRect(hWnd, nullptr, FALSE);
-                return 0;
+            if (drawTitleIcons) {
+                const RECT closeRect = NativeHostCloseRect(rc);
+                const POINT p{
+                    GET_X_LPARAM(lParam),
+                    GET_Y_LPARAM(lParam)
+                };
+                if (PtInRect(&closeRect, p)) {
+                    demo->pendingNativeHostClose_.push_back(widget);
+                    InvalidateRect(hWnd, nullptr, FALSE);
+                    return 0;
+                }
             }
         }
         return DefWindowProcW(hWnd, msg, wParam, lParam);

@@ -33,6 +33,7 @@ private:
 
     bool isInTitleBar(const DFPoint& p) const;
     bool isInCloseButton(const DFPoint& p) const;
+    bool closeButtonEnabled() const;
     DragMode getResizeMode(const DFPoint& p) const;
 
     DockWidget* content_;

@@ -31,9 +31,18 @@ struct DockTheme {
 
     DFColor clientAreaFill{DFColorFromHex(0x413E49)};
     DFColor clientAreaBorder{DFColorFromHex(0x5C3E94)};
-    float clientAreaPadding = 8.0f;
-    float clientAreaCornerRadius = 10.0f;
+    float clientAreaPadding = 2.0f;
+    float clientAreaCornerRadius = 3.333f;
     float clientAreaBorderThickness = 1.5f;
+
+    // Shared visual feature toggles for quality/performance tuning.
+    bool drawClientArea = true;
+    bool drawClientAreaBorder = true;
+    bool drawRoundedClientArea = true;
+    bool drawSplitter = true;
+    bool drawSplitterStateColors = true;
+    bool drawTitleBarIcons = true;
+    bool drawWidgetHoverOutline = true;
 };
 
 inline DockTheme MakeDarkTheme()
@@ -89,6 +98,15 @@ inline DockTheme MakeTemplateTheme()
     // theme.tabActive = {0.18f, 0.54f, 0.82f, 1.0f};
     // theme.overlayAccent = {0.98f, 0.64f, 0.21f, 0.95f};
     return theme;
+}
+
+inline void ApplyFastVisualPreset(DockTheme& theme)
+{
+    // Keep layout legibility while reducing extra visual work.
+    theme.drawRoundedClientArea = false;
+    theme.drawClientAreaBorder = false;
+    theme.drawSplitterStateColors = false;
+    theme.drawWidgetHoverOutline = false;
 }
 
 inline std::string NormalizeThemeName(std::string name)

@@ -290,6 +290,12 @@ void DockWidget::setClientAreaBorderThickness(float thickness)
     clientAreaBorderThickness_ = std::max(0.0f, thickness);
 }
 
+void DockWidget::setFastVisuals(bool enabled)
+{
+    visualOptions_.drawRoundedClientArea = !enabled;
+    visualOptions_.drawClientAreaBorder = !enabled;
+}
+
 DFRect DockWidget::clientAreaRect(const DFRect& contentBounds) const
 {
     if (!childrenFloat_) {
@@ -306,20 +312,40 @@ DFRect DockWidget::clientAreaRect(const DFRect& contentBounds) const
 
 void DockWidget::paintClientArea(Canvas& canvas, const DFRect& contentBounds) const
 {
+    if (!visualOptions_.drawClientArea) {
+        return;
+    }
+
     const DFRect client = clientAreaRect(contentBounds);
     if (client.width <= 0.0f || client.height <= 0.0f) {
         return;
     }
 
     const auto& theme = CurrentTheme();
-    const float maxRadius = std::min(client.width, client.height) * 0.5f;
-    const float cornerRadius = std::clamp(clientAreaCornerRadius_, 0.0f, maxRadius);
-    canvas.drawRoundedRectangle(client, cornerRadius, theme.clientAreaFill);
-    canvas.drawRoundedRectangleOutline(
-        client,
-        cornerRadius,
-        theme.clientAreaBorder,
-        std::max(1.0f, clientAreaBorderThickness_));
+    if (!theme.drawClientArea) {
+        return;
+    }
+
+    const bool drawRounded = theme.drawRoundedClientArea && visualOptions_.drawRoundedClientArea;
+    float cornerRadius = 0.0f;
+    if (drawRounded) {
+        const float maxRadius = std::min(client.width, client.height) * 0.5f;
+        cornerRadius = std::clamp(clientAreaCornerRadius_, 0.0f, maxRadius);
+    }
+
+    if (drawRounded) {
+        canvas.drawRoundedRectangle(client, cornerRadius, theme.clientAreaFill);
+    } else {
+        canvas.drawRectangle(client, theme.clientAreaFill);
+    }
+
+    if (theme.drawClientAreaBorder && visualOptions_.drawClientAreaBorder) {
+        canvas.drawRoundedRectangleOutline(
+            client,
+            cornerRadius,
+            theme.clientAreaBorder,
+            std::max(1.0f, clientAreaBorderThickness_));
+    }
 }
 
 void DockWidget::setBounds(const DFRect& r)

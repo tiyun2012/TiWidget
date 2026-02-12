@@ -55,8 +55,19 @@ target_link_libraries(your_app PRIVATE widgets_base)
   `set DF_THEME=slate` then run `dx12_demo.exe`.
 - Optional native title-bar color override (for floating host windows):
   `set DF_TITLE_BAR_COLOR=#2D2D30`
+- Optional fast-visual preset (reduce extra effects for performance):
+  `set DF_FAST_VISUALS=1`
 - Presets and editable template live in `widgetsBase/dock_theme.h`.
   Use `MakeTemplateTheme()` as your custom theme template.
+
+## Visual abstraction options
+- Global feature flags live in `DockTheme` (`widgetsBase/dock_theme.h`):
+  - `drawClientArea`, `drawRoundedClientArea`, `drawClientAreaBorder`
+  - `drawSplitter`, `drawSplitterStateColors`
+  - `drawTitleBarIcons`, `drawWidgetHoverOutline`
+- Per-widget overrides now live in abstract `DockWidget` (`widgetsBase/dock_framework.h`):
+  - `setVisualOptions(...)`
+  - `setFastVisuals(true)` to disable rounded/border client-area extras for that widget.
 
 ## DX12 demo interaction UX
 - Tabs now render hover feedback and have per-tab close hit targets.
