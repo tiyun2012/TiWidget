@@ -34,16 +34,32 @@ public:
 
             switch (zone.type) {
             case DropZone::Left:
-                canvas.drawLine({r.x + r.width * 0.5f, y0}, {r.x + r.width * 0.5f, y1}, edgeColor, edgeThickness);
+                {
+                    const bool wideHitZone = r.width > 8.0f;
+                    const float x = wideHitZone ? x0 : (r.x + r.width * 0.5f);
+                    canvas.drawLine({x, y0}, {x, y1}, edgeColor, edgeThickness);
+                }
                 break;
             case DropZone::Right:
-                canvas.drawLine({r.x + r.width * 0.5f, y0}, {r.x + r.width * 0.5f, y1}, edgeColor, edgeThickness);
+                {
+                    const bool wideHitZone = r.width > 8.0f;
+                    const float x = wideHitZone ? x1 : (r.x + r.width * 0.5f);
+                    canvas.drawLine({x, y0}, {x, y1}, edgeColor, edgeThickness);
+                }
                 break;
             case DropZone::Top:
-                canvas.drawLine({x0, r.y + r.height * 0.5f}, {x1, r.y + r.height * 0.5f}, edgeColor, edgeThickness);
+                {
+                    const bool wideHitZone = r.height > 8.0f;
+                    const float y = wideHitZone ? y0 : (r.y + r.height * 0.5f);
+                    canvas.drawLine({x0, y}, {x1, y}, edgeColor, edgeThickness);
+                }
                 break;
             case DropZone::Bottom:
-                canvas.drawLine({x0, r.y + r.height * 0.5f}, {x1, r.y + r.height * 0.5f}, edgeColor, edgeThickness);
+                {
+                    const bool wideHitZone = r.height > 8.0f;
+                    const float y = wideHitZone ? y1 : (r.y + r.height * 0.5f);
+                    canvas.drawLine({x0, y}, {x1, y}, edgeColor, edgeThickness);
+                }
                 break;
             case DropZone::Center:
             case DropZone::Tab:

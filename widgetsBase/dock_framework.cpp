@@ -321,6 +321,94 @@ Node* FindBestWidgetNodeAtPoint(Node* node, const DFPoint& point, df::DockWidget
     return best;
 }
 
+const Node* FindNodeByWidget(const Node* node, const df::DockWidget* widget)
+{
+    if (!node || !widget) {
+        return nullptr;
+    }
+    if (node->type == Node::Type::Widget && node->widget == widget) {
+        return node;
+    }
+    if (const Node* found = FindNodeByWidget(node->first.get(), widget)) {
+        return found;
+    }
+    if (const Node* found = FindNodeByWidget(node->second.get(), widget)) {
+        return found;
+    }
+    for (const auto& child : node->children) {
+        if (const Node* found = FindNodeByWidget(child.get(), widget)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+const Node* FindParentNode(const Node* node, const Node* target)
+{
+    if (!node || !target) {
+        return nullptr;
+    }
+    if ((node->first && node->first.get() == target) ||
+        (node->second && node->second.get() == target)) {
+        return node;
+    }
+    for (const auto& child : node->children) {
+        if (child.get() == target) {
+            return node;
+        }
+    }
+
+    if (const Node* found = FindParentNode(node->first.get(), target)) {
+        return found;
+    }
+    if (const Node* found = FindParentNode(node->second.get(), target)) {
+        return found;
+    }
+    for (const auto& child : node->children) {
+        if (const Node* found = FindParentNode(child.get(), target)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+int FindNodeDepth(const Node* node, const Node* target, int depth = 0)
+{
+    if (!node || !target) {
+        return -1;
+    }
+    if (node == target) {
+        return depth;
+    }
+
+    if (const int d = FindNodeDepth(node->first.get(), target, depth + 1); d >= 0) {
+        return d;
+    }
+    if (const int d = FindNodeDepth(node->second.get(), target, depth + 1); d >= 0) {
+        return d;
+    }
+    for (const auto& child : node->children) {
+        if (const int d = FindNodeDepth(child.get(), target, depth + 1); d >= 0) {
+            return d;
+        }
+    }
+    return -1;
+}
+
+const Node* FindSplitSibling(const Node* parent, const Node* node)
+{
+    if (!parent || !node || parent->type != Node::Type::Split) {
+        return nullptr;
+    }
+    if (parent->first && parent->first.get() == node) {
+        return parent->second.get();
+    }
+    if (parent->second && parent->second.get() == node) {
+        return parent->first.get();
+    }
+    return nullptr;
+}
+
 } // namespace
 
 namespace df {
@@ -1160,6 +1248,7 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
             zone == DragOverlay::DropZone::Top ||
             zone == DragOverlay::DropZone::Bottom;
     };
+    const float forceRootEdgePriorityDistancePx = 20.0f;
 
     const DropCandidate* hovered = nullptr;
     float bestArea = std::numeric_limits<float>::max();
@@ -1180,8 +1269,13 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         if (candidate.zone == DragOverlay::DropZone::Tab || candidate.zone == DragOverlay::DropZone::Center) {
             priority = 5;
         } else if (isEdgeZone(candidate.zone)) {
-            // Inner split candidates outrank root edge candidates.
-            priority = (candidate.depth > 0) ? 4 : 3;
+            if (candidate.depth == 0 && minDist <= forceRootEdgePriorityDistancePx) {
+                // Near the outer frame edge, root docking must beat inner splits.
+                priority = 6;
+            } else {
+                // Inner split candidates normally outrank root edge candidates.
+                priority = (candidate.depth > 0) ? 4 : 3;
+            }
         }
         if (!hovered ||
             priority > bestPriority ||
@@ -1259,6 +1353,7 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
             zone == DragOverlay::DropZone::Top ||
             zone == DragOverlay::DropZone::Bottom;
     };
+    const float forceRootEdgePriorityDistancePx = 20.0f;
 
     const DropCandidate* candidate = nullptr;
     float bestArea = std::numeric_limits<float>::max();
@@ -1278,7 +1373,11 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
         if (current.zone == DragOverlay::DropZone::Tab || current.zone == DragOverlay::DropZone::Center) {
             priority = 5;
         } else if (isEdgeZone(current.zone)) {
-            priority = (current.depth > 0) ? 4 : 3;
+            if (current.depth == 0 && minDist <= forceRootEdgePriorityDistancePx) {
+                priority = 6;
+            } else {
+                priority = (current.depth > 0) ? 4 : 3;
+            }
         }
         if (!candidate ||
             priority > bestPriority ||
@@ -1332,6 +1431,62 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
         cancelFloatingDrag();
         return;
     }
+
+    auto logDockVerify = [this, widget]() {
+        if (!mainLayout_ || !widget) {
+            return;
+        }
+        mainLayout_->update(mainContainerBounds_);
+        const Node* rootNode = mainLayout_->root();
+        if (!rootNode) {
+            PopupTracePrint(
+                "[popup] dock_verify widget=\"%s\" status=no_root",
+                widget->title().c_str());
+            return;
+        }
+
+        const Node* dockedNode = FindNodeByWidget(rootNode, widget);
+        if (!dockedNode) {
+            PopupTracePrint(
+                "[popup] dock_verify widget=\"%s\" status=missing_in_layout root_type=%s",
+                widget->title().c_str(),
+                NodeTypeName(rootNode));
+            return;
+        }
+
+        const Node* parentNode = FindParentNode(rootNode, dockedNode);
+        const Node* siblingNode = FindSplitSibling(parentNode, dockedNode);
+        const int nodeDepth = FindNodeDepth(rootNode, dockedNode);
+        const int parentDepth = parentNode ? FindNodeDepth(rootNode, parentNode) : -1;
+        const int tabChildren = (parentNode && parentNode->type == Node::Type::Tab)
+            ? static_cast<int>(parentNode->children.size())
+            : 0;
+        const DFRect parentBounds = parentNode ? parentNode->bounds : DFRect{};
+
+        PopupTracePrint(
+            "[popup] dock_verify widget=\"%s\" node_type=%s node_depth=%d parent_type=%s parent_depth=%d parent_title=\"%s\" sibling_type=%s sibling_title=\"%s\" tab_children=%d node_bounds=(%.1f,%.1f %.1fx%.1f) parent_bounds=(%.1f,%.1f %.1fx%.1f) root_bounds=(%.1f,%.1f %.1fx%.1f)",
+            widget->title().c_str(),
+            NodeTypeName(dockedNode),
+            nodeDepth,
+            parentNode ? NodeTypeName(parentNode) : "root",
+            parentDepth,
+            parentNode ? NodePrimaryWidgetTitle(parentNode) : "",
+            siblingNode ? NodeTypeName(siblingNode) : "none",
+            siblingNode ? NodePrimaryWidgetTitle(siblingNode) : "",
+            tabChildren,
+            dockedNode->bounds.x,
+            dockedNode->bounds.y,
+            dockedNode->bounds.width,
+            dockedNode->bounds.height,
+            parentBounds.x,
+            parentBounds.y,
+            parentBounds.width,
+            parentBounds.height,
+            rootNode->bounds.x,
+            rootNode->bounds.y,
+            rootNode->bounds.width,
+            rootNode->bounds.height);
+    };
 
     if (suppressDockOnNextDrop_) {
         // Only suppress accidental drops when no explicit drop hint is active.
@@ -1409,6 +1564,7 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
     std::unique_ptr<Node> root = mainLayout_->takeRoot();
     if (!root) {
         mainLayout_->setRoot(std::move(newLeaf));
+        logDockVerify();
         cancelFloatingDrag();
         return;
     }
@@ -1424,6 +1580,7 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
                 (*parentTabHandle)->activeTab = static_cast<int>((*parentTabHandle)->children.size()) - 1;
                 NormalizeNode(root);
                 mainLayout_->setRoot(std::move(root));
+                logDockVerify();
                 cancelFloatingDrag();
                 return;
             }
@@ -1503,6 +1660,7 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
 
     NormalizeNode(root);
     mainLayout_->setRoot(std::move(root));
+    logDockVerify();
     cancelFloatingDrag();
 }
 
