@@ -42,55 +42,7 @@ void DockRenderer::render(Canvas& canvas, DockLayout::Node* node)
 void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const DockTheme& theme)
 {
     if (!node) return;
-
-    if (node->type == DockLayout::Node::Type::Tab && !node->children.empty()) {
-        DFRect bar{node->bounds.x, node->bounds.y, node->bounds.width, node->tabBarHeight};
-        canvas.drawRectangle(bar, theme.tabStrip);
-
-        const float count = static_cast<float>(node->children.size());
-        const float tabWidth = (count > 0.0f) ? (node->bounds.width / count) : node->bounds.width;
-        for (size_t i = 0; i < node->children.size(); ++i) {
-            DFRect tabRect{
-                node->bounds.x + static_cast<float>(i) * tabWidth,
-                node->bounds.y,
-                tabWidth,
-                node->tabBarHeight
-            };
-            const bool active = (static_cast<int>(i) == node->activeTab);
-            const bool tabHovered = hasMousePos_ && tabRect.contains(mousePos_);
-            DFColor tabColor = active ? theme.tabActive : theme.tabInactive;
-            if (active) {
-                tabColor.r = std::min(1.0f, tabColor.r + 0.04f);
-                tabColor.g = std::min(1.0f, tabColor.g + 0.04f);
-                tabColor.b = std::min(1.0f, tabColor.b + 0.04f);
-            }
-            if (tabHovered) {
-                tabColor.r = std::min(1.0f, tabColor.r + 0.08f);
-                tabColor.g = std::min(1.0f, tabColor.g + 0.08f);
-                tabColor.b = std::min(1.0f, tabColor.b + 0.08f);
-            }
-            canvas.drawRectangle(tabRect, tabColor);
-
-            const DFRect closeRect = tabCloseRect(tabRect);
-            const bool closeHovered = hasMousePos_ && closeRect.contains(mousePos_);
-            const DFColor closeColor = closeHovered
-                ? DFColor{1.0f, 0.3f, 0.3f, 1.0f}
-                : DFColor{0.8f, 0.2f, 0.2f, 1.0f};
-            const float thickness = closeHovered ? 2.5f : 2.0f;
-            drawDockIcon(canvas, DockIcon::Close, closeRect, closeColor, thickness);
-
-            const std::string title = (node->children[i] && node->children[i]->widget)
-                ? node->children[i]->widget->title()
-                : "Untitled";
-            const DFColor textColor = active
-                ? DFColor{1.0f, 1.0f, 1.0f, 1.0f}
-                : DFColor{0.8f, 0.8f, 0.8f, 1.0f};
-            const float textX = tabRect.x + 10.0f;
-            const float textY = tabRect.y + (tabRect.height - 16.0f) * 0.5f;
-            canvas.drawText(textX, textY, title, textColor);
-            drawTitlePlaceholder(canvas, tabRect, closeRect, textColor);
-        }
-    }
+    (void)theme;
 
     if (node->type == DockLayout::Node::Type::Widget) {
         if (node->widget) {
@@ -100,9 +52,8 @@ void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const Dock
     }
 
     if (node->type == DockLayout::Node::Type::Tab) {
-        if (!node->children.empty()) {
-            const int active = std::clamp(node->activeTab, 0, static_cast<int>(node->children.size()) - 1);
-            renderNode(canvas, node->children[active].get(), theme);
+        for (const auto& child : node->children) {
+            renderNode(canvas, child.get(), theme);
         }
         return;
     }

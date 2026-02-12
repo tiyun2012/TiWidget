@@ -78,25 +78,25 @@ private:
 
         case Node::Type::Tab: {
             float maxW = 0.0f;
-            float maxH = 0.0f;
+            float totalH = 0.0f;
             bool hasChild = false;
 
-            // A tab container must be large enough for its largest child
+            // Tab UI is intentionally disabled for now. Treat tab containers as
+            // vertical stacks so every child remains visible with a single title bar.
             for (const auto& child : node->children) {
                 if (child) {
                     hasChild = true;
                     recalculateMinSizes(child.get());
                     maxW = std::max(maxW, child->calculatedMinWidth);
-                    maxH = std::max(maxH, child->calculatedMinHeight);
+                    totalH += child->calculatedMinHeight;
                 }
             }
             if (!hasChild) {
                 maxW = defaultMin;
-                maxH = defaultMin;
+                totalH = defaultMin;
             }
             node->calculatedMinWidth = maxW;
-            // Include tab bar height in the vertical requirement
-            node->calculatedMinHeight = maxH + std::max(0.0f, node->tabBarHeight);
+            node->calculatedMinHeight = totalH;
             break;
         }
 
@@ -204,7 +204,8 @@ private:
     void markTabified(Node* node, bool inheritedTabified)
     {
         if (!node) return;
-        const bool fromMultiTab = (node->type == Node::Type::Tab && node->children.size() > 1);
+        // Keep dock widgets in single-title-bar mode until tab UI is reintroduced.
+        const bool fromMultiTab = false;
         const bool tabified = inheritedTabified || fromMultiTab;
 
         if (node->type == Node::Type::Widget && node->widget) {
@@ -289,22 +290,15 @@ private:
                 break;
             }
 
-            const float barHeight = std::clamp(node->tabBarHeight, 0.0f, std::max(0.0f, bounds.height));
-            DFRect contentBounds{
-                bounds.x,
-                bounds.y + barHeight,
-                bounds.width,
-                std::max(0.0f, bounds.height - barHeight)
-            };
-
-            const int clampedActive = std::clamp(node->activeTab, 0, static_cast<int>(node->children.size()) - 1);
-            node->activeTab = clampedActive;
+            const float count = static_cast<float>(node->children.size());
+            const float sliceH = (count > 0.0f) ? (bounds.height / count) : bounds.height;
+            float y = bounds.y;
             for (size_t i = 0; i < node->children.size(); ++i) {
-                if (static_cast<int>(i) == node->activeTab) {
-                    updateNode(node->children[i].get(), contentBounds);
-                } else {
-                    updateNode(node->children[i].get(), {0.0f, 0.0f, 0.0f, 0.0f});
-                }
+                const float h = (i + 1 == node->children.size())
+                    ? std::max(0.0f, (bounds.y + bounds.height) - y)
+                    : std::max(0.0f, sliceH);
+                updateNode(node->children[i].get(), {bounds.x, y, bounds.width, h});
+                y += sliceH;
             }
             break;
         }

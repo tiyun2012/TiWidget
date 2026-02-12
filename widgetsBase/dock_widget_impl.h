@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dock_framework.h"
+#include "dock_theme.h"
 #include <algorithm>
 
 namespace df {
@@ -19,30 +20,53 @@ public:
     }
 
     void paint(Canvas& canvas) override {
+        const auto& theme = CurrentTheme();
         const DFRect b = bounds();
-        // background
-        canvas.drawRectangle(b, {0.2f, 0.2f, 0.25f, 1.0f});
-        // title bar
-        DFRect title{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
-        canvas.drawRectangle(title, {0.35f, 0.35f, 0.4f, 1.0f});
-        // content area
-        DFRect contentArea{b.x, b.y + TITLE_BAR_HEIGHT, b.width, std::max(0.0f, b.height - TITLE_BAR_HEIGHT)};
-        canvas.drawRectangle(contentArea, {0.15f, 0.15f, 0.2f, 1.0f});
+        canvas.drawRectangle(b, theme.dockBackground);
+
+        const bool showTitleBar = isDocked() && isSingleDocked();
+        const float topOffset = showTitleBar ? TITLE_BAR_HEIGHT : 0.0f;
+        if (showTitleBar) {
+            const DFRect title{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
+            canvas.drawRectangle(title, theme.titleBar);
+        }
+
+        const DFRect contentArea{b.x, b.y + topOffset, b.width, std::max(0.0f, b.height - topOffset)};
+        paintClientArea(canvas, contentArea);
         if (content()) {
-            content()->setBounds(contentArea);
+            const DFRect client = clientAreaRect(contentArea);
+            content()->setBounds(client);
             content()->paint(canvas);
         }
     }
 
     void handleEvent(Event& event) override {
-        if (event.type == Event::Type::MouseDown) {
+        const DFRect b = bounds();
+        const bool showTitleBar = isDocked() && isSingleDocked();
+        const float topOffset = showTitleBar ? TITLE_BAR_HEIGHT : 0.0f;
+
+        if (event.type == Event::Type::MouseDown && showTitleBar) {
             DFPoint mousePos{event.x, event.y};
-            const DFRect b = bounds();
-            DFRect title{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
+            const DFRect title{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
             if (title.contains(mousePos)) {
                 DockManager::instance().startDrag(this, mousePos);
                 event.handled = true;
+                return;
             }
+        }
+
+        if (!content()) {
+            return;
+        }
+
+        const DFRect contentArea{b.x, b.y + topOffset, b.width, std::max(0.0f, b.height - topOffset)};
+        const DFRect client = clientAreaRect(contentArea);
+        Event local = event;
+        local.x -= client.x;
+        local.y -= client.y;
+        content()->handleEvent(local);
+        if (local.handled) {
+            event.handled = true;
         }
     }
 };

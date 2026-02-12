@@ -120,12 +120,12 @@ int main()
     const DFRect wideBounds{0.0f, 0.0f, 1280.0f, 760.0f};
     layout.update(wideBounds);
 
-    // With tabified state accounted for, these reflect recursive content constraints.
+    // With tab UI disabled, tab containers behave like stacked panels.
     checks.expectNear(rootNode->calculatedMinWidth, 828.0f, 0.6f, "root min width");
-    checks.expectNear(rootNode->calculatedMinHeight, 534.0f, 0.6f, "root min height");
+    checks.expectNear(rootNode->calculatedMinHeight, 816.0f, 0.6f, "root min height");
     checks.expectNear(rootNode->minFirstSize, 260.0f, 0.6f, "root min first");
     checks.expectNear(rootNode->minSecondSize, 564.0f, 0.6f, "root min second");
-    checks.expectNear(rightNode->minFirstSize, 306.0f, 0.6f, "right split min first");
+    checks.expectNear(rightNode->minFirstSize, 588.0f, 0.6f, "right split min first");
     checks.expectNear(rightNode->minSecondSize, 224.0f, 0.6f, "right split min second");
     checks.expectNear(bottomNode->minFirstSize, 300.0f, 0.6f, "bottom split min first");
     checks.expectNear(bottomNode->minSecondSize, 260.0f, 0.6f, "bottom split min second");
@@ -190,13 +190,13 @@ int main()
         1.0f,
         "compressed right proportional");
 
-    // Switching active tab must not reduce tab container minimum below its largest child.
+    // Stacked tab containers keep both children visible and sum vertical requirements.
     topTabsNode->activeTab = 1;
     layout.update(wideBounds);
     checks.expectNear(topTabsNode->calculatedMinWidth, 480.0f, 0.6f, "tab min width uses largest child");
-    checks.expectNear(topTabsNode->calculatedMinHeight, 306.0f, 0.6f, "tab min height includes bar");
-    checks.expect(viewportLeafNode->bounds.width <= 0.0f, "inactive tab hidden");
-    checks.expect(sceneLeafNode->bounds.width > 1.0f, "active tab visible");
+    checks.expectNear(topTabsNode->calculatedMinHeight, 588.0f, 0.6f, "tab min height stacks children");
+    checks.expect(viewportLeafNode->bounds.width > 1.0f, "first stacked child visible");
+    checks.expect(sceneLeafNode->bounds.width > 1.0f, "second stacked child visible");
 
     if (checks.failed() > 0) {
         std::cout << "CHECKS FAILED passed=" << checks.passed() << " failed=" << checks.failed() << "\n";

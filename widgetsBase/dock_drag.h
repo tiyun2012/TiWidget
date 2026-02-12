@@ -3,7 +3,6 @@
 #include <vector>
 #include <algorithm>
 #include "core_types.h"
-#include "icon_module.h"
 
 namespace df {
 
@@ -15,38 +14,8 @@ public:
 
     void render(Canvas& canvas) {
         if (!visible_) return;
-
-        auto zoneFill = [&](DropZone type) -> DFColor {
-            switch (type) {
-            case DropZone::Center:
-            case DropZone::Tab:
-                return DFColor{0.18f, 0.62f, 0.92f, 0.55f};
-            case DropZone::Left:
-            case DropZone::Right:
-            case DropZone::Top:
-            case DropZone::Bottom:
-                return DFColor{0.82f, 0.66f, 0.30f, 0.70f};
-            case DropZone::None:
-            default:
-                return highlightColor_;
-            }
-        };
-
-        auto zoneOutline = [&](DropZone type) -> DFColor {
-            switch (type) {
-            case DropZone::Center:
-            case DropZone::Tab:
-                return DFColor{0.32f, 0.82f, 1.00f, 0.88f};
-            case DropZone::Left:
-            case DropZone::Right:
-            case DropZone::Top:
-            case DropZone::Bottom:
-                return DFColor{1.00f, 0.84f, 0.44f, 0.96f};
-            case DropZone::None:
-            default:
-                return highlightColor_;
-            }
-        };
+        const DFColor edgeColor{0.2f, 0.6f, 1.0f, 1.0f};
+        const float edgeThickness = 4.0f;
 
         for (const auto& zone : dropZones_) {
             // Important: DX12Canvas path is non-blended. "Transparent" colors still
@@ -55,36 +24,11 @@ public:
                 continue;
             }
 
-            const DFColor fill = zoneFill(zone.type);
-            const DFColor outline = zoneOutline(zone.type);
-            canvas.drawRectangle(zone.bounds, fill);
-
-            const float t = 2.0f;
-            canvas.drawRectangle({zone.bounds.x, zone.bounds.y, zone.bounds.width, t}, outline);
-            canvas.drawRectangle({zone.bounds.x, zone.bounds.y + zone.bounds.height - t, zone.bounds.width, t}, outline);
-            canvas.drawRectangle({zone.bounds.x, zone.bounds.y, t, zone.bounds.height}, outline);
-            canvas.drawRectangle({zone.bounds.x + zone.bounds.width - t, zone.bounds.y, t, zone.bounds.height}, outline);
-
-            if (zone.type == DropZone::Center || zone.type == DropZone::Tab) {
-                const float cx = zone.bounds.x + zone.bounds.width * 0.5f;
-                const float cy = zone.bounds.y + zone.bounds.height * 0.5f;
-                const float arm = std::min(zone.bounds.width, zone.bounds.height) * 0.24f;
-                const float crossW = 2.0f;
-                canvas.drawRectangle({cx - arm, cy - crossW * 0.5f, arm * 2.0f, crossW}, outline);
-                canvas.drawRectangle({cx - crossW * 0.5f, cy - arm, crossW, arm * 2.0f}, outline);
-                DrawDockIcon(canvas, DockIcon::Tabify, zone.bounds, outline, 3.0f);
-            } else {
-                const float iconThickness = 3.0f;
-                if (zone.type == DropZone::Left) {
-                    DrawDockIcon(canvas, DockIcon::SplitLeft, zone.bounds, outline, iconThickness);
-                } else if (zone.type == DropZone::Right) {
-                    DrawDockIcon(canvas, DockIcon::SplitRight, zone.bounds, outline, iconThickness);
-                } else if (zone.type == DropZone::Top) {
-                    DrawDockIcon(canvas, DockIcon::SplitTop, zone.bounds, outline, iconThickness);
-                } else if (zone.type == DropZone::Bottom) {
-                    DrawDockIcon(canvas, DockIcon::SplitBottom, zone.bounds, outline, iconThickness);
-                }
-            }
+            const DFRect& r = zone.bounds;
+            canvas.drawLine({r.x, r.y}, {r.x + r.width, r.y}, edgeColor, edgeThickness);
+            canvas.drawLine({r.x, r.y + r.height}, {r.x + r.width, r.y + r.height}, edgeColor, edgeThickness);
+            canvas.drawLine({r.x, r.y}, {r.x, r.y + r.height}, edgeColor, edgeThickness);
+            canvas.drawLine({r.x + r.width, r.y}, {r.x + r.width, r.y + r.height}, edgeColor, edgeThickness);
         }
         if (draggedWidget_) {
             canvas.drawRectangle(dragPreview_, previewColor_);
@@ -136,8 +80,6 @@ private:
     DFRect dragPreview_{};
     DockWidget* draggedWidget_ = nullptr;
     bool visible_ = false;
-    DFColor highlightColor_{0.2f, 0.6f, 1.0f, 0.35f};
-    DFColor zoneColor_{0.2f, 0.2f, 0.2f, 0.2f};
     DFColor previewColor_{0.8f, 0.8f, 1.0f, 0.4f};
 };
 

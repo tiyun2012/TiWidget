@@ -1,5 +1,6 @@
 #include "dx12_canvas.h"
 #include <d3dcompiler.h>
+#include <algorithm>
 #include <stdexcept>
 #include <cstring>
 #include <cmath>
@@ -7,6 +8,7 @@
 using Microsoft::WRL::ComPtr;
 
 namespace {
+constexpr float kPi = 3.14159265358979323846f;
 const char* kVS = R"(
 cbuffer View : register(b0)
 {
@@ -154,6 +156,9 @@ void DX12Canvas::createVertexBuffer(size_t vertexCount)
 
 void DX12Canvas::drawRectangle(const DFRect& rect, const DFColor& color)
 {
+    if (rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
     if (vertices_.size() + 6 > MAX_VERTICES) flush();
     auto makeV = [&](float x, float y) {
         return D3DVertex{{x, y}, {color.r, color.g, color.b, color.a}};
@@ -164,6 +169,109 @@ void DX12Canvas::drawRectangle(const DFRect& rect, const DFColor& color)
     D3DVertex v4 = makeV(rect.x + rect.width, rect.y + rect.height);
     vertices_.push_back(v1); vertices_.push_back(v2); vertices_.push_back(v3);
     vertices_.push_back(v2); vertices_.push_back(v4); vertices_.push_back(v3);
+}
+
+void DX12Canvas::drawRoundedRectangle(const DFRect& rect, float radius, const DFColor& color)
+{
+    if (rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+
+    const float maxRadius = std::min(rect.width, rect.height) * 0.5f;
+    const float r = std::clamp(radius, 0.0f, maxRadius);
+    if (r <= 0.01f) {
+        drawRectangle(rect, color);
+        return;
+    }
+
+    auto makeVertex = [&](float x, float y) {
+        return D3DVertex{{x, y}, {color.r, color.g, color.b, color.a}};
+    };
+    auto addTriangle = [&](const D3DVertex& a, const D3DVertex& b, const D3DVertex& c) {
+        if (vertices_.size() + 3 > MAX_VERTICES) {
+            flush();
+        }
+        vertices_.push_back(a);
+        vertices_.push_back(b);
+        vertices_.push_back(c);
+    };
+    auto addRect = [&](float x, float y, float w, float h) {
+        if (w <= 0.0f || h <= 0.0f) {
+            return;
+        }
+        D3DVertex v1 = makeVertex(x, y);
+        D3DVertex v2 = makeVertex(x + w, y);
+        D3DVertex v3 = makeVertex(x, y + h);
+        D3DVertex v4 = makeVertex(x + w, y + h);
+        addTriangle(v1, v2, v3);
+        addTriangle(v2, v4, v3);
+    };
+
+    addRect(rect.x + r, rect.y + r, rect.width - r * 2.0f, rect.height - r * 2.0f);
+    addRect(rect.x + r, rect.y, rect.width - r * 2.0f, r);
+    addRect(rect.x + r, rect.y + rect.height - r, rect.width - r * 2.0f, r);
+    addRect(rect.x, rect.y + r, r, rect.height - r * 2.0f);
+    addRect(rect.x + rect.width - r, rect.y + r, r, rect.height - r * 2.0f);
+
+    const int segments = std::max(6, static_cast<int>(std::ceil(r * 0.75f)));
+    auto addCornerFan = [&](float cx, float cy, float startAngle, float endAngle) {
+        const D3DVertex center = makeVertex(cx, cy);
+        for (int i = 0; i < segments; ++i) {
+            const float t0 = static_cast<float>(i) / static_cast<float>(segments);
+            const float t1 = static_cast<float>(i + 1) / static_cast<float>(segments);
+            const float a0 = startAngle + (endAngle - startAngle) * t0;
+            const float a1 = startAngle + (endAngle - startAngle) * t1;
+            const D3DVertex p0 = makeVertex(cx + std::cos(a0) * r, cy + std::sin(a0) * r);
+            const D3DVertex p1 = makeVertex(cx + std::cos(a1) * r, cy + std::sin(a1) * r);
+            addTriangle(center, p0, p1);
+        }
+    };
+
+    addCornerFan(rect.x + r, rect.y + r, kPi, kPi * 1.5f);
+    addCornerFan(rect.x + rect.width - r, rect.y + r, kPi * 1.5f, kPi * 2.0f);
+    addCornerFan(rect.x + rect.width - r, rect.y + rect.height - r, 0.0f, kPi * 0.5f);
+    addCornerFan(rect.x + r, rect.y + rect.height - r, kPi * 0.5f, kPi);
+}
+
+void DX12Canvas::drawRoundedRectangleOutline(const DFRect& rect, float radius, const DFColor& color, float thickness)
+{
+    if (rect.width <= 0.0f || rect.height <= 0.0f || thickness <= 0.0f) {
+        return;
+    }
+
+    const float maxRadius = std::min(rect.width, rect.height) * 0.5f;
+    const float r = std::clamp(radius, 0.0f, maxRadius);
+    const float t = std::max(1.0f, thickness);
+
+    if (r <= 0.01f) {
+        drawRectangle({rect.x, rect.y, rect.width, t}, color);
+        drawRectangle({rect.x, rect.y + std::max(0.0f, rect.height - t), rect.width, t}, color);
+        drawRectangle({rect.x, rect.y, t, rect.height}, color);
+        drawRectangle({rect.x + std::max(0.0f, rect.width - t), rect.y, t, rect.height}, color);
+        return;
+    }
+
+    drawLine({rect.x + r, rect.y}, {rect.x + rect.width - r, rect.y}, color, t);
+    drawLine({rect.x + r, rect.y + rect.height}, {rect.x + rect.width - r, rect.y + rect.height}, color, t);
+    drawLine({rect.x, rect.y + r}, {rect.x, rect.y + rect.height - r}, color, t);
+    drawLine({rect.x + rect.width, rect.y + r}, {rect.x + rect.width, rect.y + rect.height - r}, color, t);
+
+    const int segments = std::max(8, static_cast<int>(std::ceil(r)));
+    auto drawArc = [&](float cx, float cy, float startAngle, float endAngle) {
+        DFPoint previous{cx + std::cos(startAngle) * r, cy + std::sin(startAngle) * r};
+        for (int i = 1; i <= segments; ++i) {
+            const float tNorm = static_cast<float>(i) / static_cast<float>(segments);
+            const float angle = startAngle + (endAngle - startAngle) * tNorm;
+            DFPoint current{cx + std::cos(angle) * r, cy + std::sin(angle) * r};
+            drawLine(previous, current, color, t);
+            previous = current;
+        }
+    };
+
+    drawArc(rect.x + r, rect.y + r, kPi, kPi * 1.5f);
+    drawArc(rect.x + rect.width - r, rect.y + r, kPi * 1.5f, kPi * 2.0f);
+    drawArc(rect.x + rect.width - r, rect.y + rect.height - r, 0.0f, kPi * 0.5f);
+    drawArc(rect.x + r, rect.y + rect.height - r, kPi * 0.5f, kPi);
 }
 
 void DX12Canvas::drawLine(const DFPoint& a, const DFPoint& b, const DFColor& color, float thickness)

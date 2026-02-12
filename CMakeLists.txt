@@ -39,6 +39,7 @@ if (WIN32 AND WB_BUILD_DX12_DEMO)
         d3d12
         dxgi
         d3dcompiler
+        dwmapi
         dbghelp
     )
     target_compile_features(dx12_demo PRIVATE cxx_std_17)

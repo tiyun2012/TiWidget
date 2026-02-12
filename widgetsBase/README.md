@@ -53,6 +53,8 @@ target_link_libraries(your_app PRIVATE widgets_base)
 - The docking renderer reads `DF_THEME` (`dark`, `light`, `slate`, `template`).
 - Example:
   `set DF_THEME=slate` then run `dx12_demo.exe`.
+- Optional native title-bar color override (for floating host windows):
+  `set DF_TITLE_BAR_COLOR=#2D2D30`
 - Presets and editable template live in `widgetsBase/dock_theme.h`.
   Use `MakeTemplateTheme()` as your custom theme template.
 

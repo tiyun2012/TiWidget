@@ -52,11 +52,13 @@ public:
         const auto& theme = df::CurrentTheme();
 
         const DFRect& b = bounds();
+        dx12->drawRectangle(b, theme.dockBackground);
+
         const bool showTitleBar = isDocked() && isSingleDocked();
         const float topOffset = showTitleBar ? TITLE_BAR_HEIGHT : 0.0f;
         if (showTitleBar) {
             const DFRect titleBar{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
-            dx12->drawRectangle(titleBar, theme.dockTitleBar);
+            dx12->drawRectangle(titleBar, theme.titleBar);
             const DFRect undockRect = UndockButtonRect(titleBar);
             const DFRect closeRect = CloseButtonRect(titleBar);
             dx12->drawRectangle(undockRect, theme.overlayAccentSoft);
@@ -65,8 +67,8 @@ public:
             DrawDockIcon(canvas, DockIcon::Close, closeRect, {0.95f, 0.97f, 1.00f, 0.95f}, 2.0f);
         }
 
-        DFRect background{b.x, b.y + topOffset, b.width, std::max(0.0f, b.height - topOffset)};
-        dx12->drawRectangle(background, theme.dockBackground);
+        const DFRect contentHost{b.x, b.y + topOffset, b.width, std::max(0.0f, b.height - topOffset)};
+        paintClientArea(canvas, contentHost);
 
         // simple border
         dx12->drawRectangle({b.x, b.y, b.width, 1.0f}, theme.dockBorder);
@@ -75,7 +77,8 @@ public:
         dx12->drawRectangle({b.x + b.width - 1.0f, b.y, 1.0f, b.height}, theme.dockBorder);
 
         if (content()) {
-            content()->setBounds(background);
+            const DFRect client = clientAreaRect(contentHost);
+            content()->setBounds(client);
             content()->paint(canvas);
         }
     }
@@ -108,10 +111,13 @@ public:
 
         if (!content()) return;
 
-        // Forward to content with local coordinates (account for title height)
+        const DFRect contentHost{b.x, b.y + topOffset, b.width, std::max(0.0f, b.height - topOffset)};
+        const DFRect client = clientAreaRect(contentHost);
+
+        // Forward to content with local coordinates relative to floating client area.
         Event local = event;
-        local.x -= b.x;
-        local.y -= (b.y + topOffset);
+        local.x -= client.x;
+        local.y -= client.y;
         content()->handleEvent(local);
         if (local.handled) event.handled = true;
     }

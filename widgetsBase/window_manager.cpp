@@ -259,7 +259,7 @@ void WindowFrame::render(Canvas& canvas)
     const auto& theme = CurrentTheme();
     canvas.drawRectangle(bounds_, theme.floatingFrame);
     DFRect titleBar{bounds_.x, bounds_.y, bounds_.width, TITLE_BAR_HEIGHT};
-    canvas.drawRectangle(titleBar, theme.floatingTitleBar);
+    canvas.drawRectangle(titleBar, theme.titleBar);
 
     float closeX = bounds_.x + bounds_.width - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_PADDING;
     float closeY = bounds_.y + CLOSE_BUTTON_PADDING;

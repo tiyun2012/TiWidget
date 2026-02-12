@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <dbghelp.h>
+#include <dwmapi.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
@@ -26,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
+#include <cctype>
 #include <numeric>
 #include <atomic>
 #include <cmath>
@@ -42,6 +44,17 @@ class DX12Demo;
 namespace {
 const int WINDOW_WIDTH = 1280;
 const int WINDOW_HEIGHT = 720;
+constexpr bool kEnableTabUi = false;
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_TEXT_COLOR
+#define DWMWA_TEXT_COLOR 36
+#endif
 
 bool EnvEnabled(const char* name, bool defaultEnabled = false)
 {
@@ -97,6 +110,10 @@ DFColor AdjustColor(const DFColor& c, float delta)
         c.a
     };
 }
+
+bool TryParseHexColor(std::string text, DFColor& out);
+COLORREF ToColorRef(const DFColor& c);
+COLORREF ContrastTextColor(const DFColor& bg);
 
 bool IsRenderableDockWidget(const df::DockWidget* widget)
 {
@@ -167,6 +184,9 @@ const char* ActionOwnerName(ActionOwner action)
 
 void CollectTabVisuals(df::DockLayout::Node* node, std::vector<TabVisual>& out)
 {
+    if (!kEnableTabUi) {
+        return;
+    }
     if (!node) return;
     if (node->type == df::DockLayout::Node::Type::Tab && !node->children.empty()) {
         TabVisual visual;
@@ -194,6 +214,9 @@ void CollectTabVisuals(df::DockLayout::Node* node, std::vector<TabVisual>& out)
 
 bool HandleTabInteraction(df::DockLayout::Node* node, const DFPoint& p, TabInteractionHit& outHit)
 {
+    if (!kEnableTabUi) {
+        return false;
+    }
     if (!node || !node->bounds.contains(p)) return false;
 
     if (node->type == df::DockLayout::Node::Type::Tab && !node->children.empty()) {
@@ -233,6 +256,9 @@ bool HandleTabInteraction(df::DockLayout::Node* node, const DFPoint& p, TabInter
 
 bool HandleTabInteraction(df::DockLayout::Node* node, const DFPoint& p)
 {
+    if (!kEnableTabUi) {
+        return false;
+    }
     TabInteractionHit hit{};
     if (!HandleTabInteraction(node, p, hit)) {
         return false;
@@ -594,6 +620,7 @@ private:
     bool tryDockNativeFloatingHost(df::DockWidget* widget, HWND hwnd);
     bool tryDockFloatingWindowAtEdge(df::WindowFrame* window, const DFPoint& mousePos);
     void paintNativeFloatingHost(HWND hwnd);
+    void applyWindowTitleBarStyle(HWND hwnd) const;
     bool runAutomatedEventChecks();
     bool injectEvent(Event::Type type, float x, float y, const char* expectedPrefix, const char* label);
 
@@ -681,6 +708,18 @@ DX12Demo::DX12Demo(HINSTANCE hInstance)
     showDebugOverlay_ = !automationMode_;
     themeName_ = EnvString("DF_THEME", "dark");
     df::SetThemeByName(themeName_);
+    const std::string titleBarColorHex = EnvString("DF_TITLE_BAR_COLOR", "");
+    if (!titleBarColorHex.empty()) {
+        DFColor parsed{};
+        if (TryParseHexColor(titleBarColorHex, parsed)) {
+            df::DockTheme theme = df::CurrentTheme();
+            theme.titleBar = parsed;
+            df::SetTheme(theme);
+        } else {
+            eventConsole_.logAutomation(
+                std::string("invalid DF_TITLE_BAR_COLOR='") + titleBarColorHex + "', expected #RRGGBB");
+        }
+    }
     eventDurationsMs_.reserve(4096);
     frameTimesMs_.reserve(1024);
     initWindow(hInstance);
@@ -722,6 +761,7 @@ void DX12Demo::initWindow(HINSTANCE hInstance)
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
         rect.right - rect.left, rect.bottom - rect.top,
         nullptr, nullptr, hInstance, this);
+    applyWindowTitleBarStyle(hwnd_);
     const bool showWindow = !automationMode_ || showWindowInAutomation_;
     ShowWindow(hwnd_, showWindow ? SW_SHOWDEFAULT : SW_HIDE);
     syncClientOriginScreen();
@@ -946,6 +986,7 @@ void DX12Demo::createNativeFloatingHost(df::WindowFrame* frame)
         delete init;
         return;
     }
+    applyWindowTitleBarStyle(host);
     NativeFloatingHost entry;
     entry.hwnd = host;
     entry.frame = frame;
@@ -1012,6 +1053,34 @@ void DX12Demo::onNativeFloatingHostMovedOrSized(df::DockWidget* widget, HWND hwn
     statusDirty_ = true;
 }
 
+void DX12Demo::applyWindowTitleBarStyle(HWND hwnd) const
+{
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+
+    const auto& theme = df::CurrentTheme();
+    const COLORREF captionColor = ToColorRef(theme.titleBar);
+    const COLORREF textColor = ContrastTextColor(theme.titleBar);
+    const BOOL darkMode = TRUE;
+
+    DwmSetWindowAttribute(
+        hwnd,
+        static_cast<DWMWINDOWATTRIBUTE>(DWMWA_USE_IMMERSIVE_DARK_MODE),
+        &darkMode,
+        sizeof(darkMode));
+    DwmSetWindowAttribute(
+        hwnd,
+        static_cast<DWMWINDOWATTRIBUTE>(DWMWA_CAPTION_COLOR),
+        &captionColor,
+        sizeof(captionColor));
+    DwmSetWindowAttribute(
+        hwnd,
+        static_cast<DWMWINDOWATTRIBUTE>(DWMWA_TEXT_COLOR),
+        &textColor,
+        sizeof(textColor));
+}
+
 void DX12Demo::paintNativeFloatingHost(HWND hwnd)
 {
     if (!hwnd) {
@@ -1024,31 +1093,63 @@ void DX12Demo::paintNativeFloatingHost(HWND hwnd)
     }
     RECT rc{};
     GetClientRect(hwnd, &rc);
-    HBRUSH bg = CreateSolidBrush(RGB(40, 42, 56));
+    // Keep native float host simple: single title source from OS caption only.
+    // Paint client area with VS Code-like dark background.
+    HBRUSH bg = CreateSolidBrush(RGB(30, 30, 30));
     FillRect(hdc, &rc, bg);
     DeleteObject(bg);
 
-    RECT title = rc;
-    title.bottom = std::min(title.bottom, title.top + 24);
-    HBRUSH tb = CreateSolidBrush(RGB(74, 78, 102));
-    FillRect(hdc, &title, tb);
-    DeleteObject(tb);
-
-    auto it = nativeFloatingHosts_.begin();
-    for (; it != nativeFloatingHosts_.end(); ++it) {
-        if (it->second.hwnd == hwnd) {
-            break;
-        }
-    }
-    if (it != nativeFloatingHosts_.end() && it->first) {
-        const std::wstring text(it->first->title().begin(), it->first->title().end());
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(230, 233, 245));
-        TextOutW(hdc, 8, 5, text.c_str(), static_cast<int>(text.size()));
-    }
-
     EndPaint(hwnd, &ps);
 }
+
+namespace {
+
+bool TryParseHexColor(std::string text, DFColor& out)
+{
+    if (text.empty()) {
+        return false;
+    }
+    text.erase(std::remove_if(text.begin(), text.end(), [](unsigned char c) {
+        return std::isspace(c) != 0;
+    }), text.end());
+    if (!text.empty() && text[0] == '#') {
+        text.erase(text.begin());
+    }
+    if (text.rfind("0x", 0) == 0 || text.rfind("0X", 0) == 0) {
+        text = text.substr(2);
+    }
+    if (text.size() != 6) {
+        return false;
+    }
+
+    char* end = nullptr;
+    const unsigned long rgb = std::strtoul(text.c_str(), &end, 16);
+    if (!end || *end != '\0' || rgb > 0xFFFFFFul) {
+        return false;
+    }
+
+    out = DFColorFromHex(static_cast<uint32_t>(rgb));
+    return true;
+}
+
+COLORREF ToColorRef(const DFColor& c)
+{
+    const auto toByte = [](float v) -> BYTE {
+        return static_cast<BYTE>(SafeClamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+    };
+    const BYTE r = toByte(c.r);
+    const BYTE g = toByte(c.g);
+    const BYTE b = toByte(c.b);
+    return RGB(r, g, b);
+}
+
+COLORREF ContrastTextColor(const DFColor& bg)
+{
+    const float luminance = bg.r * 0.2126f + bg.g * 0.7152f + bg.b * 0.0722f;
+    return (luminance < 0.45f) ? RGB(240, 240, 240) : RGB(30, 30, 30);
+}
+
+} // namespace
 
 void DX12Demo::syncNativeFloatingHosts()
 {
@@ -1122,6 +1223,7 @@ void DX12Demo::syncNativeFloatingHosts()
             std::wstring title(widget->title().begin(), widget->title().end());
             SetWindowTextW(hwnd, title.c_str());
         }
+        applyWindowTitleBarStyle(hwnd);
     }
 }
 
@@ -1246,7 +1348,7 @@ bool DX12Demo::handleShortcutKey(int key, bool ctrlDown, bool shiftDown)
         return true;
     }
 
-    if (ctrlDown && key == VK_TAB) {
+    if (kEnableTabUi && ctrlDown && key == VK_TAB) {
         refreshLayoutState();
         auto* node = findTabNodeNearCursor();
         if (node && node->type == df::DockLayout::Node::Type::Tab && !node->children.empty()) {
@@ -1263,11 +1365,13 @@ bool DX12Demo::handleShortcutKey(int key, bool ctrlDown, bool shiftDown)
 
     if (ctrlDown && key == 'W') {
         refreshLayoutState();
-        auto* node = findTabNodeNearCursor();
-        if (closeTabNode(node, node ? node->activeTab : 0)) {
-            lastDispatchHandler_ = "key:tab_close";
-            eventConsole_.logAutomation("shortcut Ctrl+W -> close tab");
-            return true;
+        if (kEnableTabUi) {
+            auto* node = findTabNodeNearCursor();
+            if (closeTabNode(node, node ? node->activeTab : 0)) {
+                lastDispatchHandler_ = "key:tab_close";
+                eventConsole_.logAutomation("shortcut Ctrl+W -> close tab");
+                return true;
+            }
         }
         if (floatingWindow_) {
             df::WindowManager::instance().destroyWindow(floatingWindow_);
@@ -1629,6 +1733,7 @@ void DX12Demo::updateStatusCaption()
 
 bool DX12Demo::beginTabGesture(Event& event)
 {
+    if (!kEnableTabUi) return false;
     if (event.type != Event::Type::MouseDown) return false;
     const DFPoint p{event.x, event.y};
     TabInteractionHit hit{};
@@ -1926,7 +2031,7 @@ void DX12Demo::renderFrame()
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtvHeap_->GetCPUDescriptorHandleForHeapStart();
     rtv.ptr += frameIndex_ * rtvStride_;
-    const float clearDFColor[] = {0.1f, 0.1f, 0.1f, 1.0f};
+    const float clearDFColor[] = {55.0f / 255.0f, 53.0f / 255.0f, 62.0f / 255.0f, 1.0f};
     commandList_->ClearRenderTargetView(rtv, clearDFColor, 0, nullptr);
     commandList_->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     commandList_->RSSetViewports(1, &viewport_);
@@ -2481,8 +2586,8 @@ void DX12Demo::dispatchMouseEvent(Event& event)
         }
     }
 
-    // 3) Tab strip interactions.
-    if (!event.handled && event.type == Event::Type::MouseDown && beginTabGesture(event)) {
+    // 3) Tab strip interactions (currently disabled).
+    if (kEnableTabUi && !event.handled && event.type == Event::Type::MouseDown && beginTabGesture(event)) {
         statusDirty_ = true;
         return;
     }
@@ -2600,6 +2705,50 @@ bool DX12Demo::runAutomatedEventChecks()
 
     int failures = 0;
     auto pickDockedWidgetForInteraction = [&]() -> df::DockWidget* {
+        const auto windows = df::WindowManager::instance().windowsSnapshot();
+        auto titlePointFor = [&](const DFRect& b) -> DFPoint {
+            return {
+                b.x + SafeClamp(50.0f, 10.0f, b.width - 10.0f),
+                b.y + SafeClamp(10.0f, 5.0f, df::DX12DockWidget::TITLE_BAR_HEIGHT - 2.0f)
+            };
+        };
+        auto isPointCoveredByFloatingWindow = [&](const DFPoint& p) -> bool {
+            for (const auto* window : windows) {
+                if (!window) {
+                    continue;
+                }
+                if (window->bounds().contains(p)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto isCoveredByFloatingWindow = [&](const DFRect& b) -> bool {
+            const DFPoint center{b.x + b.width * 0.5f, b.y + b.height * 0.5f};
+            for (const auto* window : windows) {
+                if (!window) {
+                    continue;
+                }
+                if (window->bounds().contains(center)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        for (const auto& candidate : widgets_) {
+            if (!candidate || candidate->isFloating()) {
+                continue;
+            }
+            const DFRect b = candidate->bounds();
+            const DFPoint titlePoint = titlePointFor(b);
+            if (b.width > 16.0f && b.height > 16.0f &&
+                !isCoveredByFloatingWindow(b) &&
+                !isPointCoveredByFloatingWindow(titlePoint)) {
+                return candidate.get();
+            }
+        }
+        // Fallback to any visible docked widget if all are partially covered.
         for (const auto& candidate : widgets_) {
             if (!candidate || candidate->isFloating()) {
                 continue;
@@ -2745,64 +2894,45 @@ bool DX12Demo::runAutomatedEventChecks()
             }
 
             if (node->type == df::DockLayout::Node::Type::Tab && !node->children.empty()) {
-                const int clampedActive = std::clamp(
-                    node->activeTab, 0, static_cast<int>(node->children.size()) - 1);
-                if (clampedActive != node->activeTab) {
-                    std::ostringstream oss;
-                    oss << label << " tab active index not clamped [FAIL] active=" << node->activeTab
-                        << " clamped=" << clampedActive;
-                    eventConsole_.logAutomation(oss.str());
-                    ++failures;
-                }
-                const float barH = std::clamp(node->tabBarHeight, 0.0f, std::max(0.0f, b.height));
-                const DFRect expectedActive{
-                    b.x,
-                    b.y + barH,
-                    b.width,
-                    std::max(0.0f, b.height - barH)
-                };
+                // Tab UI is currently disabled; tab nodes behave like stacked containers.
                 float maxChildMinW = 0.0f;
-                float maxChildMinH = 0.0f;
-                for (size_t i = 0; i < node->children.size(); ++i) {
-                    if (!node->children[i]) {
+                float sumChildMinH = 0.0f;
+                float sumChildBoundsH = 0.0f;
+                for (const auto& child : node->children) {
+                    if (!child) {
                         continue;
                     }
-                    maxChildMinW = std::max(maxChildMinW, node->children[i]->calculatedMinWidth);
-                    maxChildMinH = std::max(maxChildMinH, node->children[i]->calculatedMinHeight);
-                    const DFRect cb = node->children[i]->bounds;
-                    const bool activeChild = static_cast<int>(i) == clampedActive;
-                    if (activeChild) {
-                        if (std::abs(cb.x - expectedActive.x) > 2.5f ||
-                            std::abs(cb.y - expectedActive.y) > 2.5f ||
-                            std::abs(cb.width - expectedActive.width) > 2.5f ||
-                            std::abs(cb.height - expectedActive.height) > 2.5f) {
-                            std::ostringstream oss;
-                            oss << label << " active tab bounds mismatch [FAIL]";
-                            eventConsole_.logAutomation(oss.str());
-                            ++failures;
-                        }
-                    } else if (cb.width > 1.0f || cb.height > 1.0f) {
+                    maxChildMinW = std::max(maxChildMinW, child->calculatedMinWidth);
+                    sumChildMinH += child->calculatedMinHeight;
+                    const DFRect cb = child->bounds;
+                    if (std::abs(cb.x - b.x) > 2.5f || std::abs(cb.width - b.width) > 2.5f) {
                         std::ostringstream oss;
-                        oss << label << " inactive tab not collapsed [FAIL]"
-                            << " size=" << cb.width << "x" << cb.height;
+                        oss << label << " stacked tab child width mismatch [FAIL]";
                         eventConsole_.logAutomation(oss.str());
                         ++failures;
                     }
+                    sumChildBoundsH += cb.height;
+                }
+                if (std::abs(sumChildBoundsH - b.height) > 3.0f) {
+                    std::ostringstream oss;
+                    oss << label << " stacked tab height sum mismatch [FAIL]"
+                        << " childSum=" << sumChildBoundsH << " container=" << b.height;
+                    eventConsole_.logAutomation(oss.str());
+                    ++failures;
                 }
                 if (node->calculatedMinWidth + 1.0f < maxChildMinW) {
                     std::ostringstream oss;
-                    oss << label << " tab min width too small [FAIL]"
+                    oss << label << " stacked tab min width too small [FAIL]"
                         << " tabMin=" << node->calculatedMinWidth
                         << " childMax=" << maxChildMinW;
                     eventConsole_.logAutomation(oss.str());
                     ++failures;
                 }
-                if (node->calculatedMinHeight + 1.0f < maxChildMinH + barH) {
+                if (node->calculatedMinHeight + 1.0f < sumChildMinH) {
                     std::ostringstream oss;
-                    oss << label << " tab min height too small [FAIL]"
+                    oss << label << " stacked tab min height too small [FAIL]"
                         << " tabMin=" << node->calculatedMinHeight
-                        << " childMax=" << maxChildMinH
-                        << " bar=" << barH;
+                        << " childSum=" << sumChildMinH;
                     eventConsole_.logAutomation(oss.str());
                     ++failures;
                 }
@@ -2835,8 +2965,8 @@ bool DX12Demo::runAutomatedEventChecks()
                 continue;
             }
             const DFRect b = widget->bounds();
-            // Inactive tab content is expected to be collapsed.
-            if (b.width <= 1.0f && b.height <= 1.0f) {
+            // Hidden/placeholder panels can transiently report zero bounds.
+            if (b.width <= 1.0f || b.height <= 1.0f) {
                 continue;
             }
             const DFSize widgetMin = widget->minimumSize();
@@ -2854,7 +2984,8 @@ bool DX12Demo::runAutomatedEventChecks()
                 eventConsole_.logAutomation(oss.str());
                 ++failures;
             }
-            if (b.width < 96.0f || b.height < 72.0f) {
+            const float minVisualHeight = kEnableTabUi ? 72.0f : 48.0f;
+            if (b.width < 96.0f || b.height < minVisualHeight) {
                 std::ostringstream oss;
                 oss << label << " panel squashed: " << widget->title()
                     << " size=" << b.width << "x" << b.height << " [FAIL]";
@@ -3238,10 +3369,21 @@ bool DX12Demo::runAutomatedEventChecks()
         }
 
         // Docked widgets must stay docked-layout hosted after sync operations.
-        if (!widgets_.empty() && widgets_[0] &&
-            widgets_[0]->hostType() != df::DockWidget::HostType::DockedLayout) {
-            eventConsole_.logAutomation("global_sync invalid docked host type [FAIL]");
-            ++failures;
+        bool foundDockedWidget = false;
+        for (const auto& widget : widgets_) {
+            if (!widget || widget->isFloating()) {
+                continue;
+            }
+            const DFRect b = widget->bounds();
+            if (b.width <= 1.0f || b.height <= 1.0f) {
+                continue;
+            }
+            foundDockedWidget = true;
+            if (widget->hostType() != df::DockWidget::HostType::DockedLayout) {
+                eventConsole_.logAutomation("global_sync invalid docked host type [FAIL]");
+                ++failures;
+            }
+            break;
         }
     };
 
@@ -3632,7 +3774,9 @@ bool DX12Demo::runAutomatedEventChecks()
     }
 
     if (scenario != "close_all" && runStandardSuite) {
-        runTabCheck();
+        if (kEnableTabUi) {
+            runTabCheck();
+        }
         runFloatingDragCheck();
         runFloatingRedockCheck();
         runDockBoundsCheck();

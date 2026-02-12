@@ -22,6 +22,8 @@ public:
     ~DX12Canvas() = default;
 
     void drawRectangle(const DFRect& rect, const DFColor& color) override;
+    void drawRoundedRectangle(const DFRect& rect, float radius, const DFColor& color) override;
+    void drawRoundedRectangleOutline(const DFRect& rect, float radius, const DFColor& color, float thickness = 1.0f) override;
     void drawLine(const DFPoint& a, const DFPoint& b, const DFColor& color, float thickness = 1.0f) override;
     void drawText(float /*x*/, float /*y*/, const std::string& /*text*/, const DFColor& /*color*/) override {}
 

@@ -9,12 +9,12 @@
 namespace df {
 
 struct DockTheme {
-    DFColor dockTitleBar{0.30f, 0.30f, 0.35f, 1.0f};
-    DFColor dockBackground{0.20f, 0.20f, 0.25f, 1.0f};
+    // Single title-bar color used everywhere (docked + floating).
+    DFColor titleBar{DFColorFromHex(0x2D2D30)};
+    DFColor dockBackground{DFColorFromHex(0x37353E)};
     DFColor dockBorder{0.40f, 0.40f, 0.45f, 1.0f};
 
-    DFColor floatingFrame{0.25f, 0.25f, 0.25f, 1.0f};
-    DFColor floatingTitleBar{0.40f, 0.40f, 0.40f, 1.0f};
+    DFColor floatingFrame{DFColorFromHex(0x37353E)};
     DFColor floatingCloseButton{1.00f, 0.30f, 0.30f, 1.0f};
 
     DFColor tabStrip{0.16f, 0.16f, 0.19f, 1.0f};
@@ -28,6 +28,12 @@ struct DockTheme {
     DFColor overlayPanel{0.06f, 0.06f, 0.09f, 0.85f};
     DFColor overlayAccent{0.30f, 0.78f, 1.00f, 0.95f};
     DFColor overlayAccentSoft{0.15f, 0.55f, 0.85f, 0.20f};
+
+    DFColor clientAreaFill{DFColorFromHex(0x413E49)};
+    DFColor clientAreaBorder{DFColorFromHex(0x5C3E94)};
+    float clientAreaPadding = 8.0f;
+    float clientAreaCornerRadius = 10.0f;
+    float clientAreaBorderThickness = 1.5f;
 };
 
 inline DockTheme MakeDarkTheme()
@@ -38,11 +44,10 @@ inline DockTheme MakeDarkTheme()
 inline DockTheme MakeLightTheme()
 {
     DockTheme theme{};
-    theme.dockTitleBar = {0.82f, 0.84f, 0.88f, 1.0f};
-    theme.dockBackground = {0.93f, 0.94f, 0.96f, 1.0f};
+    theme.titleBar = DFColorFromHex(0x2D2D30);
+    theme.dockBackground = DFColorFromHex(0x37353E);
     theme.dockBorder = {0.66f, 0.68f, 0.72f, 1.0f};
-    theme.floatingFrame = {0.89f, 0.90f, 0.93f, 1.0f};
-    theme.floatingTitleBar = {0.80f, 0.82f, 0.86f, 1.0f};
+    theme.floatingFrame = DFColorFromHex(0x37353E);
     theme.floatingCloseButton = {0.92f, 0.35f, 0.35f, 1.0f};
     theme.tabStrip = {0.84f, 0.86f, 0.89f, 1.0f};
     theme.tabActive = {0.62f, 0.72f, 0.92f, 1.0f};
@@ -58,11 +63,10 @@ inline DockTheme MakeLightTheme()
 inline DockTheme MakeSlateTheme()
 {
     DockTheme theme{};
-    theme.dockTitleBar = {0.20f, 0.25f, 0.28f, 1.0f};
-    theme.dockBackground = {0.13f, 0.16f, 0.19f, 1.0f};
+    theme.titleBar = DFColorFromHex(0x2D2D30);
+    theme.dockBackground = DFColorFromHex(0x37353E);
     theme.dockBorder = {0.34f, 0.41f, 0.46f, 1.0f};
-    theme.floatingFrame = {0.16f, 0.20f, 0.23f, 1.0f};
-    theme.floatingTitleBar = {0.22f, 0.28f, 0.33f, 1.0f};
+    theme.floatingFrame = DFColorFromHex(0x37353E);
     theme.floatingCloseButton = {0.94f, 0.38f, 0.31f, 1.0f};
     theme.tabStrip = {0.16f, 0.20f, 0.23f, 1.0f};
     theme.tabActive = {0.24f, 0.41f, 0.54f, 1.0f};
@@ -81,7 +85,7 @@ inline DockTheme MakeTemplateTheme()
 {
     DockTheme theme = MakeDarkTheme();
     // Example customization points:
-    // theme.dockTitleBar = {0.19f, 0.24f, 0.40f, 1.0f};
+    // theme.titleBar = {0.19f, 0.24f, 0.40f, 1.0f};
     // theme.tabActive = {0.18f, 0.54f, 0.82f, 1.0f};
     // theme.overlayAccent = {0.98f, 0.64f, 0.21f, 0.95f};
     return theme;

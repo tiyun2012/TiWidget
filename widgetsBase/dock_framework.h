@@ -55,6 +55,16 @@ public:
     DFRect globalBounds() const;
     void setMinimumSize(float width, float height);
     virtual DFSize minimumSize() const;
+    void setChildrenFloat(bool enabled) { childrenFloat_ = enabled; }
+    bool childrenFloat() const { return childrenFloat_; }
+    void setClientAreaPadding(float padding);
+    float clientAreaPadding() const { return clientAreaPadding_; }
+    void setClientAreaCornerRadius(float radius);
+    float clientAreaCornerRadius() const { return clientAreaCornerRadius_; }
+    void setClientAreaBorderThickness(float thickness);
+    float clientAreaBorderThickness() const { return clientAreaBorderThickness_; }
+    DFRect clientAreaRect(const DFRect& contentBounds) const;
+    virtual void paintClientArea(Canvas& canvas, const DFRect& contentBounds) const;
 
     // Rendering and event dispatch to be implemented by derived classes.
     virtual void paint(Canvas& canvas);
@@ -76,6 +86,10 @@ private:
     std::function<void(bool)> onDockChanged_;
     DFRect bounds_{};
     DFSize minimumSize_{};
+    bool childrenFloat_ = true;
+    float clientAreaPadding_ = 8.0f;
+    float clientAreaCornerRadius_ = 10.0f;
+    float clientAreaBorderThickness_ = 1.5f;
 };
 
 // -------------------------------------------------------------------
@@ -184,6 +198,7 @@ private:
     };
     std::vector<DropCandidate> dropCandidates_;
     int highlightedCandidateIndex_ = -1;
+    float rootDockHeaderInsetPx_ = 40.0f;
     float edgeDockActivateDistancePx_ = 8.0f;
     float innerSplitSnapZonePx_ = 32.0f;
     std::vector<DockWidget*> widgets_;

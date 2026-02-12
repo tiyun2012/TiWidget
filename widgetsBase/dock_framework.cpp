@@ -1,5 +1,6 @@
 #include "dock_framework.h"
 #include "dock_layout.h"
+#include "dock_theme.h"
 #include "window_manager.h"
 #include "core_types.h"
 
@@ -246,7 +247,13 @@ Node* FindBestWidgetNodeAtPoint(Node* node, const DFPoint& point, df::DockWidget
 namespace df {
 
 // ----- DockWidget ---------------------------------------------------
-DockWidget::DockWidget(const std::string& title) : title_(title) {}
+DockWidget::DockWidget(const std::string& title) : title_(title)
+{
+    const auto& theme = CurrentTheme();
+    clientAreaPadding_ = std::max(0.0f, theme.clientAreaPadding);
+    clientAreaCornerRadius_ = std::max(0.0f, theme.clientAreaCornerRadius);
+    clientAreaBorderThickness_ = std::max(0.0f, theme.clientAreaBorderThickness);
+}
 DockWidget::~DockWidget() = default;
 
 void DockWidget::setTitle(const std::string& title) { title_ = title; }
@@ -266,6 +273,53 @@ DFSize DockWidget::minimumSize() const
         std::max(minimumSize_.width, contentMin.width),
         std::max(minimumSize_.height, contentMin.height)
     };
+}
+
+void DockWidget::setClientAreaPadding(float padding)
+{
+    clientAreaPadding_ = std::max(0.0f, padding);
+}
+
+void DockWidget::setClientAreaCornerRadius(float radius)
+{
+    clientAreaCornerRadius_ = std::max(0.0f, radius);
+}
+
+void DockWidget::setClientAreaBorderThickness(float thickness)
+{
+    clientAreaBorderThickness_ = std::max(0.0f, thickness);
+}
+
+DFRect DockWidget::clientAreaRect(const DFRect& contentBounds) const
+{
+    if (!childrenFloat_) {
+        return contentBounds;
+    }
+    const float pad = std::max(0.0f, clientAreaPadding_);
+    return {
+        contentBounds.x + pad,
+        contentBounds.y + pad,
+        std::max(0.0f, contentBounds.width - pad * 2.0f),
+        std::max(0.0f, contentBounds.height - pad * 2.0f)
+    };
+}
+
+void DockWidget::paintClientArea(Canvas& canvas, const DFRect& contentBounds) const
+{
+    const DFRect client = clientAreaRect(contentBounds);
+    if (client.width <= 0.0f || client.height <= 0.0f) {
+        return;
+    }
+
+    const auto& theme = CurrentTheme();
+    const float maxRadius = std::min(client.width, client.height) * 0.5f;
+    const float cornerRadius = std::clamp(clientAreaCornerRadius_, 0.0f, maxRadius);
+    canvas.drawRoundedRectangle(client, cornerRadius, theme.clientAreaFill);
+    canvas.drawRoundedRectangleOutline(
+        client,
+        cornerRadius,
+        theme.clientAreaBorder,
+        std::max(1.0f, clientAreaBorderThickness_));
 }
 
 void DockWidget::setBounds(const DFRect& r)
@@ -294,12 +348,30 @@ DFRect DockWidget::globalBounds() const
 
 void DockWidget::paint(Canvas& canvas)
 {
-    (void)canvas;
+    const auto& theme = CurrentTheme();
+    canvas.drawRectangle(bounds_, theme.dockBackground);
+    paintClientArea(canvas, bounds_);
+    if (content_) {
+        const DFRect client = clientAreaRect(bounds_);
+        content_->setBounds(client);
+        content_->paint(canvas);
+    }
 }
 
 void DockWidget::handleEvent(Event& event)
 {
-    (void)event;
+    if (!content_) {
+        return;
+    }
+
+    Event local = event;
+    const DFRect client = clientAreaRect(bounds_);
+    local.x -= client.x;
+    local.y -= client.y;
+    content_->handleEvent(local);
+    if (local.handled) {
+        event.handled = true;
+    }
 }
 
 // ----- DockArea -----------------------------------------------------
@@ -614,14 +686,29 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         return;
     }
 
+    // Root edge docking excludes the header/tool area.
+    const float headerInset = std::clamp(
+        rootDockHeaderInsetPx_,
+        0.0f,
+        std::max(0.0f, mainContainerBounds_.height));
+    const DFRect rootContainer{
+        mainContainerBounds_.x,
+        mainContainerBounds_.y + headerInset,
+        mainContainerBounds_.width,
+        std::max(0.0f, mainContainerBounds_.height - headerInset)
+    };
+    if (rootContainer.width <= 1.0f || rootContainer.height <= 1.0f) {
+        return;
+    }
+
     // Keep edge hints active even when cursor is slightly outside the client rect.
     // This makes "drag to edge and release" reliable at window boundaries.
     const float edgeMargin = edgeDockActivateDistancePx_ * 1.5f;
     const DFRect expandedContainer{
-        mainContainerBounds_.x - edgeMargin,
-        mainContainerBounds_.y - edgeMargin,
-        mainContainerBounds_.width + edgeMargin * 2.0f,
-        mainContainerBounds_.height + edgeMargin * 2.0f
+        rootContainer.x - edgeMargin,
+        rootContainer.y - edgeMargin,
+        rootContainer.width + edgeMargin * 2.0f,
+        rootContainer.height + edgeMargin * 2.0f
     };
     if (!expandedContainer.contains(mousePos)) {
         overlay_.highlightZone(DragOverlay::DropZone::None);
@@ -643,10 +730,10 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
         dropCandidates_.push_back(entry);
     };
 
-    const float leftDist = std::abs(mousePos.x - mainContainerBounds_.x);
-    const float rightDist = std::abs((mainContainerBounds_.x + mainContainerBounds_.width) - mousePos.x);
-    const float topDist = std::abs(mousePos.y - mainContainerBounds_.y);
-    const float bottomDist = std::abs((mainContainerBounds_.y + mainContainerBounds_.height) - mousePos.y);
+    const float leftDist = std::abs(mousePos.x - rootContainer.x);
+    const float rightDist = std::abs((rootContainer.x + rootContainer.width) - mousePos.x);
+    const float topDist = std::abs(mousePos.y - rootContainer.y);
+    const float bottomDist = std::abs((rootContainer.y + rootContainer.height) - mousePos.y);
     const float minDist = std::min(std::min(leftDist, rightDist), std::min(topDist, bottomDist));
 
     DragOverlay::DropZone nearestEdge = DragOverlay::DropZone::Left;
@@ -671,16 +758,16 @@ void DockManager::updateFloatingDrag(const DFPoint& mousePos)
     DFRect edgeBounds{};
     switch (nearestEdge) {
     case DragOverlay::DropZone::Left:
-        edgeBounds = {mainContainerBounds_.x, mainContainerBounds_.y, sideW, mainContainerBounds_.height};
+        edgeBounds = {rootContainer.x, rootContainer.y, sideW, rootContainer.height};
         break;
     case DragOverlay::DropZone::Right:
-        edgeBounds = {mainContainerBounds_.x + mainContainerBounds_.width - sideW, mainContainerBounds_.y, sideW, mainContainerBounds_.height};
+        edgeBounds = {rootContainer.x + rootContainer.width - sideW, rootContainer.y, sideW, rootContainer.height};
         break;
     case DragOverlay::DropZone::Top:
-        edgeBounds = {mainContainerBounds_.x, mainContainerBounds_.y, mainContainerBounds_.width, sideH};
+        edgeBounds = {rootContainer.x, rootContainer.y, rootContainer.width, sideH};
         break;
     case DragOverlay::DropZone::Bottom:
-        edgeBounds = {mainContainerBounds_.x, mainContainerBounds_.y + mainContainerBounds_.height - sideH, mainContainerBounds_.width, sideH};
+        edgeBounds = {rootContainer.x, rootContainer.y + rootContainer.height - sideH, rootContainer.width, sideH};
         break;
     case DragOverlay::DropZone::None:
     case DragOverlay::DropZone::Center:
@@ -838,10 +925,24 @@ void DockManager::endFloatingDrag(const DFPoint& mousePos)
     // current highlighted target.
     updateFloatingDrag(mousePos);
 
-    const float leftDist = std::abs(mousePos.x - mainContainerBounds_.x);
-    const float rightDist = std::abs((mainContainerBounds_.x + mainContainerBounds_.width) - mousePos.x);
-    const float topDist = std::abs(mousePos.y - mainContainerBounds_.y);
-    const float bottomDist = std::abs((mainContainerBounds_.y + mainContainerBounds_.height) - mousePos.y);
+    const float headerInset = std::clamp(
+        rootDockHeaderInsetPx_,
+        0.0f,
+        std::max(0.0f, mainContainerBounds_.height));
+    DFRect rootContainer{
+        mainContainerBounds_.x,
+        mainContainerBounds_.y + headerInset,
+        mainContainerBounds_.width,
+        std::max(0.0f, mainContainerBounds_.height - headerInset)
+    };
+    if (rootContainer.width <= 1.0f || rootContainer.height <= 1.0f) {
+        rootContainer = mainContainerBounds_;
+    }
+
+    const float leftDist = std::abs(mousePos.x - rootContainer.x);
+    const float rightDist = std::abs((rootContainer.x + rootContainer.width) - mousePos.x);
+    const float topDist = std::abs(mousePos.y - rootContainer.y);
+    const float bottomDist = std::abs((rootContainer.y + rootContainer.height) - mousePos.y);
     const float minDist = std::min(std::min(leftDist, rightDist), std::min(topDist, bottomDist));
 
     DragOverlay::DropZone nearestEdge = DragOverlay::DropZone::Left;
