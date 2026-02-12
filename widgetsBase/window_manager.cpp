@@ -1,5 +1,6 @@
 #include "window_manager.h"
 #include "dock_theme.h"
+#include "icon_module.h"
 #include <algorithm>
 
 namespace df {
@@ -126,10 +127,15 @@ WindowFrame::DragMode WindowFrame::getResizeMode(const DFPoint& p) const
 
 bool WindowFrame::handleEvent(Event& event)
 {
+    if (event.type == Event::Type::MouseMove) {
+        closeHovered_ = isInCloseButton({event.x, event.y});
+    }
+
     if (event.type == Event::Type::MouseDown) {
         DFPoint mousePos{event.x, event.y};
 
         if (isInCloseButton(mousePos)) {
+            closeHovered_ = true;
             closeRequested_ = true;
             event.handled = true;
             return true;
@@ -257,6 +263,14 @@ bool WindowFrame::handleEvent(Event& event)
 void WindowFrame::render(Canvas& canvas)
 {
     const auto& theme = CurrentTheme();
+    auto shiftColor = [](const DFColor& c, float delta) -> DFColor {
+        return {
+            std::clamp(c.r + delta, 0.0f, 1.0f),
+            std::clamp(c.g + delta, 0.0f, 1.0f),
+            std::clamp(c.b + delta, 0.0f, 1.0f),
+            c.a
+        };
+    };
     canvas.drawRectangle(bounds_, theme.floatingFrame);
     DFRect titleBar{bounds_.x, bounds_.y, bounds_.width, TITLE_BAR_HEIGHT};
     canvas.drawRectangle(titleBar, theme.titleBar);
@@ -264,7 +278,17 @@ void WindowFrame::render(Canvas& canvas)
     float closeX = bounds_.x + bounds_.width - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_PADDING;
     float closeY = bounds_.y + CLOSE_BUTTON_PADDING;
     DFRect closeButton{closeX, closeY, CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE};
-    canvas.drawRectangle(closeButton, theme.floatingCloseButton);
+    if (closeHovered_) {
+        canvas.drawRectangle(closeButton, shiftColor(theme.titleBar, 0.10f));
+    }
+    const DFColor iconBase{0.90f, 0.91f, 0.94f, 1.0f};
+    const DFColor iconHover{1.00f, 1.00f, 1.00f, 1.0f};
+    DrawDockIcon(
+        canvas,
+        DockIcon::Close,
+        closeButton,
+        closeHovered_ ? iconHover : iconBase,
+        closeHovered_ ? 2.2f : 2.0f);
 
     if (content_) content_->paint(canvas);
 }

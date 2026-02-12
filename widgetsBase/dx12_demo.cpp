@@ -572,6 +572,25 @@ struct NativeFloatingHostCreateData {
 };
 
 constexpr const wchar_t* kNativeFloatingHostClass = L"DFNativeFloatingHostWnd";
+constexpr int kNativeHostTitleBarHeight = 28;
+constexpr int kNativeHostCloseSize = 14;
+constexpr int kNativeHostCloseMargin = 6;
+constexpr int kNativeHostCloseCornerRadius = 5;
+
+RECT NativeHostCloseRect(const RECT& clientRect)
+{
+    const int titleBottom = std::min<int>(static_cast<int>(clientRect.bottom), kNativeHostTitleBarHeight);
+    const int y = std::max(0, (titleBottom - kNativeHostCloseSize) / 2);
+    const int right = static_cast<int>(clientRect.right);
+    const int left = std::max(0, right - kNativeHostCloseSize - kNativeHostCloseMargin);
+    const int closeRight = std::max(0, right - kNativeHostCloseMargin);
+    return RECT{
+        left,
+        y,
+        closeRight,
+        y + kNativeHostCloseSize
+    };
+}
 }
 
 class DX12Demo {
@@ -973,7 +992,7 @@ void DX12Demo::createNativeFloatingHost(df::WindowFrame* frame)
         WS_EX_TOOLWINDOW,
         kNativeFloatingHostClass,
         std::wstring(widget->title().begin(), widget->title().end()).c_str(),
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        WS_POPUP | WS_THICKFRAME | WS_VISIBLE,
         static_cast<int>(gb.x),
         static_cast<int>(gb.y),
         std::max(160, static_cast<int>(gb.width)),
@@ -986,7 +1005,6 @@ void DX12Demo::createNativeFloatingHost(df::WindowFrame* frame)
         delete init;
         return;
     }
-    applyWindowTitleBarStyle(host);
     NativeFloatingHost entry;
     entry.hwnd = host;
     entry.frame = frame;
@@ -1093,11 +1111,90 @@ void DX12Demo::paintNativeFloatingHost(HWND hwnd)
     }
     RECT rc{};
     GetClientRect(hwnd, &rc);
-    // Keep native float host simple: single title source from OS caption only.
-    // Paint client area with VS Code-like dark background.
-    HBRUSH bg = CreateSolidBrush(RGB(30, 30, 30));
-    FillRect(hdc, &rc, bg);
-    DeleteObject(bg);
+    const auto& theme = df::CurrentTheme();
+    const COLORREF titleColor = ToColorRef(theme.titleBar);
+    const COLORREF bodyColor = ToColorRef(theme.dockBackground);
+    const COLORREF titleTextColor = ContrastTextColor(theme.titleBar);
+    const DFColor closeBase = DFColorFromHex(0xE6E8EF);
+    const DFColor closeHover = DFColorFromHex(0xFFFFFF);
+
+    RECT titleRect = rc;
+    titleRect.bottom = std::min<LONG>(rc.bottom, static_cast<LONG>(kNativeHostTitleBarHeight));
+
+    HBRUSH titleBrush = CreateSolidBrush(titleColor);
+    FillRect(hdc, &titleRect, titleBrush);
+    DeleteObject(titleBrush);
+
+    RECT bodyRect = rc;
+    bodyRect.top = titleRect.bottom;
+    HBRUSH bodyBrush = CreateSolidBrush(bodyColor);
+    FillRect(hdc, &bodyRect, bodyBrush);
+    DeleteObject(bodyBrush);
+
+    std::wstring title(256, L'\0');
+    const int written = GetWindowTextW(hwnd, title.data(), static_cast<int>(title.size()));
+    if (written > 0) {
+        title.resize(static_cast<size_t>(written));
+    } else {
+        title.clear();
+    }
+
+    RECT closeRect = NativeHostCloseRect(rc);
+    POINT cursor{};
+    bool closeHoverActive = false;
+    if (GetCursorPos(&cursor) && ScreenToClient(hwnd, &cursor)) {
+        closeHoverActive = PtInRect(&closeRect, cursor) != 0;
+    }
+
+    if (closeHoverActive) {
+        const COLORREF hoverBg = ToColorRef(AdjustColor(theme.titleBar, 0.10f));
+        HBRUSH hoverBrush = CreateSolidBrush(hoverBg);
+        HPEN noPen = static_cast<HPEN>(GetStockObject(NULL_PEN));
+        HGDIOBJ oldPen = SelectObject(hdc, noPen);
+        HGDIOBJ oldBrush = SelectObject(hdc, hoverBrush);
+        RoundRect(
+            hdc,
+            closeRect.left,
+            closeRect.top,
+            closeRect.right,
+            closeRect.bottom,
+            kNativeHostCloseCornerRadius,
+            kNativeHostCloseCornerRadius);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(hoverBrush);
+    }
+
+    RECT textRect{
+        rc.left + 8,
+        titleRect.top,
+        std::max(rc.left + 8, closeRect.left - 8),
+        titleRect.bottom
+    };
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, titleTextColor);
+    DrawTextW(
+        hdc,
+        title.c_str(),
+        static_cast<int>(title.size()),
+        &textRect,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    const DFColor iconColor = closeHoverActive ? closeHover : closeBase;
+    const COLORREF iconRef = ToColorRef(iconColor);
+    HPEN pen = CreatePen(PS_SOLID, 1, iconRef);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    const int iconPadding = 4;
+    const int ix0 = static_cast<int>(closeRect.left) + iconPadding;
+    const int iy0 = static_cast<int>(closeRect.top) + iconPadding;
+    const int ix1 = std::max(ix0, static_cast<int>(closeRect.right) - iconPadding - 1);
+    const int iy1 = std::max(iy0, static_cast<int>(closeRect.bottom) - iconPadding - 1);
+    MoveToEx(hdc, ix0, iy0, nullptr);
+    LineTo(hdc, ix1, iy1);
+    MoveToEx(hdc, ix0, iy1, nullptr);
+    LineTo(hdc, ix1, iy0);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
 
     EndPaint(hwnd, &ps);
 }
@@ -2302,6 +2399,60 @@ LRESULT CALLBACK DX12Demo::FloatingHostWndProc(HWND hWnd, UINT msg, WPARAM wPara
     };
 
     switch (msg) {
+    case WM_NCHITTEST:
+        if (demo && widget) {
+            const LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
+            if (hit != HTCLIENT) {
+                return hit;
+            }
+            POINT pt{
+                GET_X_LPARAM(lParam),
+                GET_Y_LPARAM(lParam)
+            };
+            if (!ScreenToClient(hWnd, &pt)) {
+                return HTCLIENT;
+            }
+            RECT rc{};
+            GetClientRect(hWnd, &rc);
+            const RECT closeRect = NativeHostCloseRect(rc);
+            if (PtInRect(&closeRect, pt)) {
+                return HTCLIENT;
+            }
+            if (pt.y >= 0 && pt.y < kNativeHostTitleBarHeight) {
+                return HTCAPTION;
+            }
+            return HTCLIENT;
+        }
+        break;
+    case WM_MOUSEMOVE:
+        {
+            TRACKMOUSEEVENT tme{};
+            tme.cbSize = sizeof(TRACKMOUSEEVENT);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hWnd;
+            TrackMouseEvent(&tme);
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    case WM_MOUSELEAVE:
+        InvalidateRect(hWnd, nullptr, FALSE);
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    case WM_LBUTTONDOWN:
+        if (demo && widget) {
+            RECT rc{};
+            GetClientRect(hWnd, &rc);
+            const RECT closeRect = NativeHostCloseRect(rc);
+            const POINT p{
+                GET_X_LPARAM(lParam),
+                GET_Y_LPARAM(lParam)
+            };
+            if (PtInRect(&closeRect, p)) {
+                demo->pendingNativeHostClose_.push_back(widget);
+                InvalidateRect(hWnd, nullptr, FALSE);
+                return 0;
+            }
+        }
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
     case WM_ENTERSIZEMOVE:
         if (demo && widget) {
             if (auto* frame = df::WindowManager::instance().findWindowByContent(widget)) {

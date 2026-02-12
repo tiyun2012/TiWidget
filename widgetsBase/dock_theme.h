@@ -15,7 +15,7 @@ struct DockTheme {
     DFColor dockBorder{0.40f, 0.40f, 0.45f, 1.0f};
 
     DFColor floatingFrame{DFColorFromHex(0x37353E)};
-    DFColor floatingCloseButton{1.00f, 0.30f, 0.30f, 1.0f};
+    DFColor floatingCloseButton{DFColorFromHex(0x2D2D30)};
 
     DFColor tabStrip{0.16f, 0.16f, 0.19f, 1.0f};
     DFColor tabActive{0.28f, 0.34f, 0.44f, 1.0f};
@@ -48,7 +48,7 @@ inline DockTheme MakeLightTheme()
     theme.dockBackground = DFColorFromHex(0x37353E);
     theme.dockBorder = {0.66f, 0.68f, 0.72f, 1.0f};
     theme.floatingFrame = DFColorFromHex(0x37353E);
-    theme.floatingCloseButton = {0.92f, 0.35f, 0.35f, 1.0f};
+    theme.floatingCloseButton = DFColorFromHex(0x2D2D30);
     theme.tabStrip = {0.84f, 0.86f, 0.89f, 1.0f};
     theme.tabActive = {0.62f, 0.72f, 0.92f, 1.0f};
     theme.tabInactive = {0.75f, 0.77f, 0.82f, 1.0f};
@@ -67,7 +67,7 @@ inline DockTheme MakeSlateTheme()
     theme.dockBackground = DFColorFromHex(0x37353E);
     theme.dockBorder = {0.34f, 0.41f, 0.46f, 1.0f};
     theme.floatingFrame = DFColorFromHex(0x37353E);
-    theme.floatingCloseButton = {0.94f, 0.38f, 0.31f, 1.0f};
+    theme.floatingCloseButton = DFColorFromHex(0x2D2D30);
     theme.tabStrip = {0.16f, 0.20f, 0.23f, 1.0f};
     theme.tabActive = {0.24f, 0.41f, 0.54f, 1.0f};
     theme.tabInactive = {0.18f, 0.25f, 0.29f, 1.0f};

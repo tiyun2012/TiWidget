@@ -4,6 +4,7 @@
 #include "dock_theme.h"
 #include "dx12_canvas.h"
 #include "icon_module.h"
+#include "window_manager.h"
 #include <algorithm>
 
 namespace df {
@@ -50,6 +51,14 @@ public:
         auto* dx12 = dynamic_cast<DX12Canvas*>(&canvas);
         if (!dx12) return;
         const auto& theme = df::CurrentTheme();
+        auto shiftColor = [](const DFColor& c, float delta) -> DFColor {
+            return {
+                std::clamp(c.r + delta, 0.0f, 1.0f),
+                std::clamp(c.g + delta, 0.0f, 1.0f),
+                std::clamp(c.b + delta, 0.0f, 1.0f),
+                c.a
+            };
+        };
 
         const DFRect& b = bounds();
         dx12->drawRectangle(b, theme.dockBackground);
@@ -59,12 +68,36 @@ public:
         if (showTitleBar) {
             const DFRect titleBar{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
             dx12->drawRectangle(titleBar, theme.titleBar);
+
+            // Use live cursor position for reliable hover tinting with no stale state.
+            DFPoint cursor{};
+            bool hasCursor = false;
+            POINT screenPos{};
+            if (GetCursorPos(&screenPos)) {
+                const DFPoint origin = WindowManager::instance().clientOriginScreen();
+                cursor = {
+                    static_cast<float>(screenPos.x) - origin.x,
+                    static_cast<float>(screenPos.y) - origin.y
+                };
+                hasCursor = true;
+            }
+
             const DFRect undockRect = UndockButtonRect(titleBar);
             const DFRect closeRect = CloseButtonRect(titleBar);
-            dx12->drawRectangle(undockRect, theme.overlayAccentSoft);
-            dx12->drawRectangle(closeRect, theme.floatingCloseButton);
-            DrawDockIcon(canvas, DockIcon::Undock, undockRect, {0.93f, 0.96f, 1.00f, 0.95f}, 2.0f);
-            DrawDockIcon(canvas, DockIcon::Close, closeRect, {0.95f, 0.97f, 1.00f, 0.95f}, 2.0f);
+            const bool hoverUndock = hasCursor && undockRect.contains(cursor);
+            const bool hoverClose = hasCursor && closeRect.contains(cursor);
+
+            if (hoverUndock) {
+                dx12->drawRectangle(undockRect, shiftColor(theme.titleBar, 0.10f));
+            }
+            if (hoverClose) {
+                dx12->drawRectangle(closeRect, shiftColor(theme.titleBar, 0.10f));
+            }
+
+            const DFColor iconBase{0.90f, 0.91f, 0.94f, 1.0f};
+            const DFColor iconHover{1.00f, 1.00f, 1.00f, 1.0f};
+            DrawDockIcon(canvas, DockIcon::Undock, undockRect, hoverUndock ? iconHover : iconBase, hoverUndock ? 2.2f : 2.0f);
+            DrawDockIcon(canvas, DockIcon::Close, closeRect, hoverClose ? iconHover : iconBase, hoverClose ? 2.2f : 2.0f);
         }
 
         const DFRect contentHost{b.x, b.y + topOffset, b.width, std::max(0.0f, b.height - topOffset)};

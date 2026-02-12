@@ -43,6 +43,7 @@ private:
     DFRect originalBounds_{};
     bool dragging_ = false;
     bool closeRequested_ = false;
+    bool closeHovered_ = false;
 
     static constexpr float TITLE_BAR_HEIGHT = 24.0f;
     static constexpr float RESIZE_HANDLE_SIZE = 8.0f;
