@@ -153,7 +153,7 @@ public:
     void registerWidget(DockWidget* widget);
     void unregisterWidget(DockWidget* widget);
 
-    void startDrag(DockWidget* widget, const DFPoint& mousePos);
+    void startDrag(DockWidget* widget, const DFPoint& mousePos, bool allowUndockFromTabHeader = false);
     void updateDrag(const DFPoint& mousePos);
     void endDrag();
     void closeWidget(DockWidget* widget);
@@ -187,6 +187,7 @@ private:
         DFPoint lastPos{};
         DFPoint currentPos{};
         DFRect startBounds{};
+        bool allowUndockFromTabHeader = false;
         bool active = false;
     };
     DragData drag_;

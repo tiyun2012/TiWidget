@@ -63,11 +63,9 @@ public:
                 break;
             case DropZone::Center:
             case DropZone::Tab:
-                // Keep center/tab hints as rectangles.
-                canvas.drawLine({x0, y0}, {x1, y0}, edgeColor, edgeThickness);
-                canvas.drawLine({x0, y1}, {x1, y1}, edgeColor, edgeThickness);
-                canvas.drawLine({x0, y0}, {x0, y1}, edgeColor, edgeThickness);
-                canvas.drawLine({x1, y0}, {x1, y1}, edgeColor, edgeThickness);
+                // Do not render full client-frame outlines for center/tab hover.
+                // This avoids persistent blue border noise while cursor is inside
+                // a tab client area.
                 break;
             case DropZone::None:
             default:

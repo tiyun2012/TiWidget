@@ -36,8 +36,8 @@ private:
     DFRect activeParentBounds_{};
     float activeGrabOffset_ = 0.0f;
 
-    static constexpr float SPLITTER_THICKNESS = 4.0f;
-    static constexpr float SPLITTER_HOVER_THICKNESS = 8.0f;
+    static constexpr float SPLITTER_THICKNESS = DockLayout::SplitterGapPx();
+    static constexpr float SPLITTER_HOVER_THICKNESS = 4.0f;
 };
 
 } // namespace df

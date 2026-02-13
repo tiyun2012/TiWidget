@@ -92,7 +92,7 @@ int main()
     auto topTabs = std::make_unique<df::DockLayout::Node>();
     auto* topTabsNode = topTabs.get();
     topTabs->type = df::DockLayout::Node::Type::Tab;
-    topTabs->tabBarHeight = 26.0f;
+    topTabs->tabBarHeight = df::DockLayout::ThemeTabBarHeight();
     topTabs->activeTab = 0;
 
     auto viewportLeaf = makeLeaf(viewport.get());
@@ -120,7 +120,7 @@ int main()
     const DFRect wideBounds{0.0f, 0.0f, 1280.0f, 760.0f};
     layout.update(wideBounds);
 
-    // With tab UI disabled, tab containers behave like stacked panels.
+    // Tab containers reserve a single content view plus shared tab strip.
     checks.expectNear(rootNode->calculatedMinWidth, 828.0f, 0.6f, "root min width");
     checks.expectNear(rootNode->calculatedMinHeight, 816.0f, 0.6f, "root min height");
     checks.expectNear(rootNode->minFirstSize, 260.0f, 0.6f, "root min first");

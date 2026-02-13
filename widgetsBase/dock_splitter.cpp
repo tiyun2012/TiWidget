@@ -49,22 +49,25 @@ void DockSplitter::collectSplitters(DockLayout::Node* node, const DFRect& bounds
     splitter.parentBounds = bounds;
     splitter.dragging = (activeNode_ != nullptr && activeNode_ == node);
 
-    // Qt 6 style: Splitters are visually thin (often 1px or 4px) but have a standard logic
+    // Splitter lane sits in the explicit inter-widget gap reserved by DockLayout.
     if (splitter.vertical) {
-        float splitX = bounds.x + bounds.width * node->ratio;
-        // Center the splitter visual on the split line
-        splitter.bounds = {splitX - SPLITTER_THICKNESS * 0.5f, bounds.y, SPLITTER_THICKNESS, bounds.height};
+        const float availableWidth = std::max(0.0f, bounds.width - SPLITTER_THICKNESS);
+        const float splitX = bounds.x + availableWidth * std::clamp(node->ratio, 0.0f, 1.0f);
+        splitter.bounds = {splitX, bounds.y, SPLITTER_THICKNESS, bounds.height};
 
-        DFRect first{bounds.x, bounds.y, splitX - bounds.x, bounds.height};
-        DFRect second{splitX, bounds.y, bounds.x + bounds.width - splitX, bounds.height};
+        const float secondX = splitX + SPLITTER_THICKNESS;
+        DFRect first{bounds.x, bounds.y, std::max(0.0f, splitX - bounds.x), bounds.height};
+        DFRect second{secondX, bounds.y, std::max(0.0f, bounds.x + bounds.width - secondX), bounds.height};
         collectSplitters(node->first.get(), first);
         collectSplitters(node->second.get(), second);
     } else {
-        float splitY = bounds.y + bounds.height * node->ratio;
-        splitter.bounds = {bounds.x, splitY - SPLITTER_THICKNESS * 0.5f, bounds.width, SPLITTER_THICKNESS};
+        const float availableHeight = std::max(0.0f, bounds.height - SPLITTER_THICKNESS);
+        const float splitY = bounds.y + availableHeight * std::clamp(node->ratio, 0.0f, 1.0f);
+        splitter.bounds = {bounds.x, splitY, bounds.width, SPLITTER_THICKNESS};
 
-        DFRect first{bounds.x, bounds.y, bounds.width, splitY - bounds.y};
-        DFRect second{bounds.x, splitY, bounds.width, bounds.y + bounds.height - splitY};
+        const float secondY = splitY + SPLITTER_THICKNESS;
+        DFRect first{bounds.x, bounds.y, bounds.width, std::max(0.0f, splitY - bounds.y)};
+        DFRect second{bounds.x, secondY, bounds.width, std::max(0.0f, bounds.y + bounds.height - secondY)};
         collectSplitters(node->first.get(), first);
         collectSplitters(node->second.get(), second);
     }
@@ -96,10 +99,12 @@ void DockSplitter::startDrag(Splitter* splitter, const DFPoint& p)
     activeVertical_ = splitter->vertical;
     activeParentBounds_ = splitter->parentBounds;
     if (activeVertical_) {
-        const float splitX = activeParentBounds_.x + activeParentBounds_.width * activeNode_->ratio;
+        const float availableWidth = std::max(0.0f, activeParentBounds_.width - SPLITTER_THICKNESS);
+        const float splitX = activeParentBounds_.x + availableWidth * std::clamp(activeNode_->ratio, 0.0f, 1.0f);
         activeGrabOffset_ = p.x - splitX;
     } else {
-        const float splitY = activeParentBounds_.y + activeParentBounds_.height * activeNode_->ratio;
+        const float availableHeight = std::max(0.0f, activeParentBounds_.height - SPLITTER_THICKNESS);
+        const float splitY = activeParentBounds_.y + availableHeight * std::clamp(activeNode_->ratio, 0.0f, 1.0f);
         activeGrabOffset_ = p.y - splitY;
     }
     splitter->dragging = true;
@@ -120,16 +125,17 @@ void DockSplitter::updateDrag(const DFPoint& p)
     }
 
     const float total = activeVertical_ ? activeParentBounds_.width : activeParentBounds_.height;
-    if (total <= 0.0f) return;
+    const float available = std::max(0.0f, total - SPLITTER_THICKNESS);
+    if (available <= 0.0f) return;
 
     // Use the values calculated by DockLayout::recalculateMinSizes
     // This ensures the splitter stops exactly where the content says it must.
-    float minFirst = std::clamp(activeNode_->minFirstSize, 0.0f, total);
-    float minSecond = std::clamp(activeNode_->minSecondSize, 0.0f, total);
+    float minFirst = std::clamp(activeNode_->minFirstSize, 0.0f, available);
+    float minSecond = std::clamp(activeNode_->minSecondSize, 0.0f, available);
     const float minSum = minFirst + minSecond;
-    if (minSum > total) {
+    if (minSum > available) {
         // Handle compression when window is too small
-        const float scale = total / minSum;
+        const float scale = available / minSum;
         minFirst *= scale;
         minSecond *= scale;
     }
@@ -142,17 +148,17 @@ void DockSplitter::updateDrag(const DFPoint& p)
         const float splitY = p.y - activeGrabOffset_;
         firstSize = splitY - activeParentBounds_.y;
     }
-    float maxFirst = std::max(0.0f, total - minSecond);
+    float maxFirst = std::max(0.0f, available - minSecond);
     if (maxFirst < minFirst) {
         maxFirst = minFirst;
     }
 
     // Qt-style constraint: Clamp strictly to min/max
     firstSize = std::clamp(firstSize, minFirst, maxFirst);
-    const float secondSize = total - firstSize;
+    const float secondSize = available - firstSize;
 
     // Update the node state
-    activeNode_->ratio = (total > 0.0f) ? (firstSize / total) : 0.5f;
+    activeNode_->ratio = (available > 0.0f) ? (firstSize / available) : 0.5f;
     if (activeNode_->splitSizing == DockLayout::Node::SplitSizing::FixedFirst) {
         activeNode_->fixedSize = firstSize;
     } else if (activeNode_->splitSizing == DockLayout::Node::SplitSizing::FixedSecond) {
@@ -194,10 +200,21 @@ void DockSplitter::render(Canvas& canvas)
             ? DFColor{0.10f, 0.11f, 0.12f, 1.0f}
             : DFColor{0.93f, 0.94f, 0.96f, 1.0f};
 
+        // Keep a persistent splitter track in the reserved gap.
+        // Draw a thin center stroke so edge thickness stays subtle.
+        if (s.vertical) {
+            const float cx = s.bounds.x + s.bounds.width * 0.5f;
+            canvas.drawLine({cx, s.bounds.y}, {cx, s.bounds.y + s.bounds.height}, lineColor, 1.0f);
+        } else {
+            const float cy = s.bounds.y + s.bounds.height * 0.5f;
+            canvas.drawLine({s.bounds.x, cy}, {s.bounds.x + s.bounds.width, cy}, lineColor, 1.0f);
+        }
+
         if (s.vertical) {
             const float centerX = s.bounds.x + s.bounds.width * 0.5f;
-            const float handleW = std::min(s.bounds.width, std::clamp(s.bounds.width + 3.0f, 7.0f, 12.0f));
-            const float handleH = std::min(s.bounds.height, std::clamp(s.bounds.height * 0.16f, 48.0f, 140.0f));
+            // Visual rule: splitter edge is thin; handle is ~3x thicker.
+            const float handleW = std::clamp(s.bounds.width * 1.5f, 2.5f, 5.0f);
+            const float handleH = std::min(s.bounds.height, std::clamp(s.bounds.height * 0.08f, 24.0f, 70.0f));
             const DFRect handle{
                 centerX - handleW * 0.5f,
                 s.bounds.y + (s.bounds.height - handleH) * 0.5f,
@@ -205,20 +222,22 @@ void DockSplitter::render(Canvas& canvas)
                 handleH
             };
 
-            const float gap = 3.0f;
-            const float topEnd = handle.y - gap;
-            const float bottomStart = handle.y + handle.height + gap;
-            if (topEnd > s.bounds.y) {
-                canvas.drawLine({centerX, s.bounds.y}, {centerX, topEnd}, lineColor, 1.0f);
-            }
-            if (bottomStart < s.bounds.y + s.bounds.height) {
-                canvas.drawLine({centerX, bottomStart}, {centerX, s.bounds.y + s.bounds.height}, lineColor, 1.0f);
+            if (theme.drawSplitterGuideLines) {
+                const float gap = 3.0f;
+                const float topEnd = handle.y - gap;
+                const float bottomStart = handle.y + handle.height + gap;
+                if (topEnd > s.bounds.y) {
+                    canvas.drawLine({centerX, s.bounds.y}, {centerX, topEnd}, lineColor, 1.0f);
+                }
+                if (bottomStart < s.bounds.y + s.bounds.height) {
+                    canvas.drawLine({centerX, bottomStart}, {centerX, s.bounds.y + s.bounds.height}, lineColor, 1.0f);
+                }
             }
 
             const float radius = std::min(handle.width, handle.height) * 0.45f;
             canvas.drawRoundedRectangle(handle, radius, handleColor);
 
-            const float dotSize = std::clamp(handleW * 0.34f, 1.8f, 2.8f);
+            const float dotSize = std::clamp(handleW * 0.34f, 0.9f, 1.4f);
             const float dotStep = dotSize * 2.0f;
             const float dotX = centerX - dotSize * 0.5f;
             const float dotStartY = handle.y + handle.height * 0.5f - dotStep;
@@ -229,8 +248,9 @@ void DockSplitter::render(Canvas& canvas)
         }
 
         const float centerY = s.bounds.y + s.bounds.height * 0.5f;
-        const float handleH = std::min(s.bounds.height, std::clamp(s.bounds.height + 3.0f, 7.0f, 12.0f));
-        const float handleW = std::min(s.bounds.width, std::clamp(s.bounds.width * 0.16f, 48.0f, 140.0f));
+        // Visual rule: splitter edge is thin; handle is ~3x thicker.
+        const float handleH = std::clamp(s.bounds.height * 1.5f, 2.5f, 5.0f);
+        const float handleW = std::min(s.bounds.width, std::clamp(s.bounds.width * 0.08f, 24.0f, 70.0f));
         const DFRect handle{
             s.bounds.x + (s.bounds.width - handleW) * 0.5f,
             centerY - handleH * 0.5f,
@@ -238,20 +258,22 @@ void DockSplitter::render(Canvas& canvas)
             handleH
         };
 
-        const float gap = 3.0f;
-        const float leftEnd = handle.x - gap;
-        const float rightStart = handle.x + handle.width + gap;
-        if (leftEnd > s.bounds.x) {
-            canvas.drawLine({s.bounds.x, centerY}, {leftEnd, centerY}, lineColor, 1.0f);
-        }
-        if (rightStart < s.bounds.x + s.bounds.width) {
-            canvas.drawLine({rightStart, centerY}, {s.bounds.x + s.bounds.width, centerY}, lineColor, 1.0f);
+        if (theme.drawSplitterGuideLines) {
+            const float gap = 3.0f;
+            const float leftEnd = handle.x - gap;
+            const float rightStart = handle.x + handle.width + gap;
+            if (leftEnd > s.bounds.x) {
+                canvas.drawLine({s.bounds.x, centerY}, {leftEnd, centerY}, lineColor, 1.0f);
+            }
+            if (rightStart < s.bounds.x + s.bounds.width) {
+                canvas.drawLine({rightStart, centerY}, {s.bounds.x + s.bounds.width, centerY}, lineColor, 1.0f);
+            }
         }
 
         const float radius = std::min(handle.width, handle.height) * 0.45f;
         canvas.drawRoundedRectangle(handle, radius, handleColor);
 
-        const float dotSize = std::clamp(handleH * 0.34f, 1.8f, 2.8f);
+        const float dotSize = std::clamp(handleH * 0.34f, 0.9f, 1.4f);
         const float dotStep = dotSize * 2.0f;
         const float dotY = centerY - dotSize * 0.5f;
         const float dotStartX = handle.x + handle.width * 0.5f - dotStep;

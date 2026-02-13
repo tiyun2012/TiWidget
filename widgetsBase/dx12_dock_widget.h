@@ -48,18 +48,7 @@ public:
 
     static std::string ClipTitle(const std::string& title, float maxWidthPx)
     {
-        constexpr float kGlyphAdvance = 1.6f * 6.0f; // matches Canvas::drawText bitmap font
-        const int maxChars = (maxWidthPx > 0.0f) ? static_cast<int>(maxWidthPx / kGlyphAdvance) : 0;
-        if (maxChars <= 0) {
-            return {};
-        }
-        if (static_cast<int>(title.size()) <= maxChars) {
-            return title;
-        }
-        if (maxChars <= 3) {
-            return title.substr(0, static_cast<size_t>(maxChars));
-        }
-        return title.substr(0, static_cast<size_t>(maxChars - 3)) + "...";
+        return DFClipTextToWidth(title, maxWidthPx, true);
     }
 
     DFSize minimumSize() const override {
@@ -79,7 +68,8 @@ public:
         dx12->drawRectangle(b, theme.dockBackground);
 
         const bool showTitleBar = isDocked() && isSingleDocked();
-        const bool drawTitleIcons = theme.drawTitleBarIcons && visualOptions().drawTitleBarIcons;
+        const bool drawCloseIcon = theme.drawTitleBarIcons && visualOptions().drawTitleBarIcons;
+        const bool drawUndockIcon = drawCloseIcon && theme.drawUndockIcon;
         const float topOffset = showTitleBar ? TITLE_BAR_HEIGHT : 0.0f;
         if (showTitleBar) {
             const DFRect titleBar{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
@@ -87,17 +77,21 @@ public:
 
             const float textLeft = titleBar.x + 8.0f;
             float textRight = titleBar.x + titleBar.width - 8.0f;
-            if (drawTitleIcons) {
-                textRight = std::min(textRight, UndockButtonRect(titleBar).x - 6.0f);
+            if (drawCloseIcon) {
+                const DFRect closeRect = CloseButtonRect(titleBar);
+                textRight = std::min(textRight, closeRect.x - 6.0f);
+                if (drawUndockIcon) {
+                    textRight = std::min(textRight, UndockButtonRect(titleBar).x - 6.0f);
+                }
             }
             const std::string clippedTitle = ClipTitle(title(), textRight - textLeft);
             if (!clippedTitle.empty()) {
                 const DFColor textColor = TitleTextColor(theme.titleBar);
-                const float textTop = titleBar.y + (titleBar.height - 11.2f) * 0.5f;
+                const float textTop = DFTextBaselineYForRect(titleBar);
                 dx12->drawText(textLeft, textTop, clippedTitle, textColor);
             }
 
-            if (drawTitleIcons) {
+            if (drawCloseIcon) {
                 // Use live cursor position for reliable hover tinting with no stale state.
                 DFPoint cursor{};
                 bool hasCursor = false;
@@ -111,15 +105,17 @@ public:
                     hasCursor = true;
                 }
 
-                const DFRect undockRect = UndockButtonRect(titleBar);
                 const DFRect closeRect = CloseButtonRect(titleBar);
-                const bool hoverUndock = hasCursor && undockRect.contains(cursor);
                 const bool hoverClose = hasCursor && closeRect.contains(cursor);
                 DockIconButtonStyle style{};
                 style.roundHoverBackground = true;
                 style.hoverCornerRadius = 4.0f;
-                DrawDockIconButton(canvas, DockIcon::Undock, undockRect, theme.titleBar, hoverUndock, style);
                 DrawDockIconButton(canvas, DockIcon::Close, closeRect, theme.titleBar, hoverClose, style);
+                if (drawUndockIcon) {
+                    const DFRect undockRect = UndockButtonRect(titleBar);
+                    const bool hoverUndock = hasCursor && undockRect.contains(cursor);
+                    DrawDockIconButton(canvas, DockIcon::Undock, undockRect, theme.titleBar, hoverUndock, style);
+                }
             }
         }
 
@@ -144,19 +140,20 @@ public:
         const auto& theme = df::CurrentTheme();
 
         const bool showTitleBar = isDocked() && isSingleDocked();
-        const bool drawTitleIcons = theme.drawTitleBarIcons && visualOptions().drawTitleBarIcons;
+        const bool drawCloseIcon = theme.drawTitleBarIcons && visualOptions().drawTitleBarIcons;
+        const bool drawUndockIcon = drawCloseIcon && theme.drawUndockIcon;
         const float topOffset = showTitleBar ? TITLE_BAR_HEIGHT : 0.0f;
 
         DFPoint p{event.x, event.y};
         if (event.type == Event::Type::MouseDown && showTitleBar) {
             const DFRect titleBar{b.x, b.y, b.width, TITLE_BAR_HEIGHT};
             if (titleBar.contains(p)) {
-                if (drawTitleIcons && CloseButtonRect(titleBar).contains(p)) {
+                if (drawCloseIcon && CloseButtonRect(titleBar).contains(p)) {
                     df::DockManager::instance().closeWidget(this);
                     event.handled = true;
                     return;
                 }
-                if (drawTitleIcons && UndockButtonRect(titleBar).contains(p)) {
+                if (drawUndockIcon && UndockButtonRect(titleBar).contains(p)) {
                     df::DockManager::instance().startUndockDrag(this, p);
                     event.handled = true;
                     return;

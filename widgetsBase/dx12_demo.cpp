@@ -203,16 +203,9 @@ void CollectTabVisuals(df::DockLayout::Node* node, std::vector<TabVisual>& out)
     if (node->type == df::DockLayout::Node::Type::Tab && !node->children.empty()) {
         TabVisual visual;
         visual.node = node;
-        visual.strip = {node->bounds.x, node->bounds.y, node->bounds.width, node->tabBarHeight};
-        const float count = static_cast<float>(node->children.size());
-        const float tabWidth = (count > 0.0f) ? (visual.strip.width / count) : visual.strip.width;
+        visual.strip = df::DockLayout::TabStripRect(*node, node->bounds);
         for (size_t i = 0; i < node->children.size(); ++i) {
-            visual.tabRects.push_back({
-                visual.strip.x + static_cast<float>(i) * tabWidth,
-                visual.strip.y,
-                tabWidth,
-                visual.strip.height
-            });
+            visual.tabRects.push_back(df::DockLayout::TabRectForIndex(*node, node->bounds, i, node->children.size()));
             visual.widgets.push_back(node->children[i] ? node->children[i]->widget : nullptr);
         }
         out.push_back(visual);
@@ -232,20 +225,15 @@ bool HandleTabInteraction(df::DockLayout::Node* node, const DFPoint& p, TabInter
     if (!node || !node->bounds.contains(p)) return false;
 
     if (node->type == df::DockLayout::Node::Type::Tab && !node->children.empty()) {
-        const DFRect bar{node->bounds.x, node->bounds.y, node->bounds.width, node->tabBarHeight};
+        const DFRect bar = df::DockLayout::TabStripRect(*node, node->bounds);
         if (bar.contains(p)) {
-            const float count = static_cast<float>(node->children.size());
-            const float tabWidth = (count > 0.0f) ? (bar.width / count) : bar.width;
-            const int index = static_cast<int>((p.x - bar.x) / std::max(1.0f, tabWidth));
-            if (index >= 0 && index < static_cast<int>(node->children.size())) {
-                const DFRect tabRect{
-                    bar.x + static_cast<float>(index) * tabWidth,
-                    bar.y,
-                    tabWidth,
-                    bar.height
-                };
+            for (size_t i = 0; i < node->children.size(); ++i) {
+                const DFRect tabRect = df::DockLayout::TabRectForIndex(*node, node->bounds, i, node->children.size());
+                if (tabRect.width <= 1.0f || tabRect.height <= 1.0f || !tabRect.contains(p)) {
+                    continue;
+                }
                 outHit.node = node;
-                outHit.tabIndex = index;
+                outHit.tabIndex = static_cast<int>(i);
                 outHit.tabRect = tabRect;
                 outHit.closeRect = df::DockRenderer::tabCloseRect(tabRect);
                 outHit.closeHit = outHit.closeRect.contains(p);
@@ -923,7 +911,6 @@ void DX12Demo::initDocking()
     root->second->second = std::make_unique<df::DockLayout::Node>();
     root->second->second->type = df::DockLayout::Node::Type::Tab;
     root->second->second->activeTab = 0;
-    root->second->second->tabBarHeight = 24.0f;
     auto inspectorNode = std::make_unique<df::DockLayout::Node>();
     inspectorNode->type = df::DockLayout::Node::Type::Widget;
     inspectorNode->widget = inspector;
@@ -1232,14 +1219,59 @@ void DX12Demo::paintNativeFloatingHost(HWND hwnd)
         std::max(rc.left + 8, closeRect.left - 8),
         titleRect.bottom
     };
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, titleTextColor);
-    DrawTextW(
-        hdc,
-        title.c_str(),
-        static_cast<int>(title.size()),
-        &textRect,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    std::string titleText;
+    titleText.reserve(title.size());
+    for (wchar_t wc : title) {
+        titleText.push_back((wc >= 0 && wc <= 127) ? static_cast<char>(wc) : '?');
+    }
+    const DFRect textRectF{
+        static_cast<float>(textRect.left),
+        static_cast<float>(textRect.top),
+        static_cast<float>(std::max(0L, textRect.right - textRect.left)),
+        static_cast<float>(std::max(0L, textRect.bottom - textRect.top))
+    };
+    const std::string clippedTitle = DFClipTextToWidth(titleText, textRectF.width, true);
+    if (!clippedTitle.empty()) {
+        const int savedDc = SaveDC(hdc);
+        IntersectClipRect(hdc, textRect.left, textRect.top, textRect.right, textRect.bottom);
+        HBRUSH textBrush = CreateSolidBrush(titleTextColor);
+        const bool smoothText = DFTextSmooth();
+        HPEN noPen = nullptr;
+        HGDIOBJ oldPen = nullptr;
+        if (smoothText) {
+            noPen = static_cast<HPEN>(GetStockObject(NULL_PEN));
+            oldPen = SelectObject(hdc, noPen);
+        }
+        DFDrawBitmapTextPixels(
+            textRectF.x,
+            DFTextBaselineYForRect(textRectF),
+            clippedTitle,
+            [&](float px, float py, float w, float h) {
+                if (smoothText) {
+                    const int left = static_cast<int>(std::floor(px));
+                    const int top = static_cast<int>(std::floor(py));
+                    const int right = static_cast<int>(std::ceil(px + w));
+                    const int bottom = static_cast<int>(std::ceil(py + h));
+                    const int radius = std::max(1, static_cast<int>(std::round(w * 0.65f)));
+                    HGDIOBJ oldBrush = SelectObject(hdc, textBrush);
+                    RoundRect(hdc, left, top, right, bottom, radius, radius);
+                    SelectObject(hdc, oldBrush);
+                    return;
+                }
+                RECT pixelRect{
+                    static_cast<LONG>(std::floor(px)),
+                    static_cast<LONG>(std::floor(py)),
+                    static_cast<LONG>(std::ceil(px + w)),
+                    static_cast<LONG>(std::ceil(py + h))
+                };
+                FillRect(hdc, &pixelRect, textBrush);
+            });
+        if (smoothText) {
+            SelectObject(hdc, oldPen);
+        }
+        DeleteObject(textBrush);
+        RestoreDC(hdc, savedDc);
+    }
 
     if (drawTitleIcons) {
         const DFColor iconColor = closeHoverActive ? closeHover : closeBase;
@@ -1663,7 +1695,6 @@ bool DX12Demo::dockFloatingWindowIntoTarget(df::WindowFrame* window, df::DockWid
     targetNode->children.clear();
     targetNode->children.push_back(std::move(original));
     targetNode->children.push_back(std::move(incoming));
-    targetNode->tabBarHeight = 24.0f;
     targetNode->activeTab = 1;
 
     if (floatingWindow_ == window) {
