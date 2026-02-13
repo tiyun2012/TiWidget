@@ -122,11 +122,16 @@ public:
         const DFRect contentHost{b.x, b.y + topOffset, b.width, std::max(0.0f, b.height - topOffset)};
         paintClientArea(canvas, contentHost);
 
-        // simple border
-        dx12->drawRectangle({b.x, b.y, b.width, 1.0f}, theme.dockBorder);
-        dx12->drawRectangle({b.x, b.y + b.height - 1.0f, b.width, 1.0f}, theme.dockBorder);
-        dx12->drawRectangle({b.x, b.y, 1.0f, b.height}, theme.dockBorder);
-        dx12->drawRectangle({b.x + b.width - 1.0f, b.y, 1.0f, b.height}, theme.dockBorder);
+        // Outer frame: when tab-hosted, remove top segment so tab outline and
+        // panel border read as one connected object (Qt-like).
+        const bool tabHosted = isDocked() && isTabified();
+        const DFColor frameColor = tabHosted ? theme.tabOutline : theme.dockBorder;
+        if (!tabHosted) {
+            dx12->drawRectangle({b.x, b.y, b.width, 1.0f}, frameColor);
+        }
+        dx12->drawRectangle({b.x, b.y + b.height - 1.0f, b.width, 1.0f}, frameColor);
+        dx12->drawRectangle({b.x, b.y, 1.0f, b.height}, frameColor);
+        dx12->drawRectangle({b.x + b.width - 1.0f, b.y, 1.0f, b.height}, frameColor);
 
         if (content()) {
             const DFRect client = clientAreaRect(contentHost);

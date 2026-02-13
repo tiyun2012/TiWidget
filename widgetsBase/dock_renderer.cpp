@@ -72,6 +72,67 @@ void DrawHorizontalTabShape(
     }
 }
 
+void DrawHorizontalFlatTabShape(
+    Canvas& canvas,
+    const DFRect& tabRect,
+    const DFColor& fill,
+    const DFColor& outline,
+    float baseY)
+{
+    if (tabRect.width <= 2.0f || tabRect.height <= 2.0f) {
+        return;
+    }
+    const float topInset = std::max(1.0f, std::min(3.0f, tabRect.height * 0.32f));
+    const float topY = tabRect.y + topInset;
+    const float bottomY = std::max(topY + 1.0f, baseY);
+    const DFRect body{
+        tabRect.x,
+        topY,
+        tabRect.width,
+        std::max(1.0f, bottomY - topY + 1.0f)
+    };
+    canvas.drawRectangle(body, fill);
+    canvas.drawLine({body.x, topY}, {body.x + body.width, topY}, outline, 1.0f);
+    canvas.drawLine({body.x, topY}, {body.x, bottomY}, outline, 1.0f);
+    canvas.drawLine({body.x + body.width, topY}, {body.x + body.width, bottomY}, outline, 1.0f);
+}
+
+void DrawHorizontalSteppedTabShape(
+    Canvas& canvas,
+    const DFRect& tabRect,
+    const DFColor& fill,
+    const DFColor& outline,
+    float baseY,
+    float shoulderWidth,
+    float liftPx)
+{
+    if (tabRect.width <= 6.0f || tabRect.height <= 3.0f) {
+        return;
+    }
+
+    const float left = tabRect.x;
+    const float right = tabRect.x + tabRect.width;
+    const float topY = std::max(tabRect.y, baseY - std::max(2.0f, tabRect.height - 2.0f));
+    const float shoulderRun = std::clamp(shoulderWidth, 2.0f, tabRect.width * 0.25f);
+    const float leftTopX = left + shoulderRun;
+    const float rightTopX = right - shoulderRun;
+    const float shoulderDrop = std::clamp(liftPx * 0.5f, 1.0f, std::max(1.0f, baseY - topY - 1.0f));
+    const float lowerY = std::min(baseY, topY + shoulderDrop);
+
+    // Approximate a stepped tab fill (center cap + lower body).
+    canvas.drawRectangle(
+        {leftTopX, topY, std::max(1.0f, rightTopX - leftTopX), std::max(1.0f, baseY - topY + 1.0f)},
+        fill);
+    canvas.drawRectangle(
+        {left, lowerY, std::max(1.0f, right - left), std::max(1.0f, baseY - lowerY + 1.0f)},
+        fill);
+
+    // Outline: /----\ integrated with the border baseline.
+    canvas.drawLine({left, baseY}, {leftTopX, topY}, outline, 1.0f);
+    canvas.drawLine({leftTopX, topY}, {rightTopX, topY}, outline, 1.0f);
+    canvas.drawLine({rightTopX, topY}, {right, baseY}, outline, 1.0f);
+}
+
 void DrawVerticalTabShape(
     Canvas& canvas,
     const DFRect& tabRect,
@@ -196,6 +257,7 @@ void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const Dock
         const DFRect bar = DockLayout::TabStripRect(*node, node->bounds);
         if (bar.width > 1.0f && bar.height > 1.0f) {
             const float tabFontScale = std::clamp(theme.tabFontScale, 0.3f, 2.0f);
+            const float barBottomY = bar.y + bar.height - 1.0f;
             canvas.drawRectangle(bar, theme.tabStrip);
             const DFColor stripHi = ShiftColor(theme.tabStrip, 0.05f);
             const DFColor stripLo = ShiftColor(theme.tabStrip, -0.04f);
@@ -205,7 +267,29 @@ void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const Dock
                 canvas.drawLine({bar.x, bar.y + bar.height - 1.0f}, {bar.x + bar.width, bar.y + bar.height - 1.0f}, stripLo, 1.0f);
             } else {
                 canvas.drawLine({bar.x, bar.y}, {bar.x + bar.width, bar.y}, stripHi, 1.0f);
-                canvas.drawLine({bar.x, bar.y + bar.height - 1.0f}, {bar.x + bar.width, bar.y + bar.height - 1.0f}, theme.tabOutline, 1.0f);
+                if (theme.drawSteppedTabShape) {
+                    // Keep stepped shape consistent for every tab state:
+                    // draw baseline only between tab slots (no line under tabs).
+                    float cursor = bar.x;
+                    const float barRight = bar.x + bar.width;
+                    for (size_t i = 0; i < node->children.size(); ++i) {
+                        const DFRect tabRect = DockLayout::TabRectForIndex(*node, node->bounds, i, node->children.size());
+                        if (tabRect.width <= 1.0f) {
+                            continue;
+                        }
+                        const float cutStart = std::clamp(tabRect.x, bar.x, barRight);
+                        const float cutEnd = std::clamp(tabRect.x + tabRect.width, bar.x, barRight);
+                        if (cutStart > cursor) {
+                            canvas.drawLine({cursor, barBottomY}, {cutStart, barBottomY}, theme.tabOutline, 1.0f);
+                        }
+                        cursor = std::max(cursor, cutEnd);
+                    }
+                    if (cursor < barRight) {
+                        canvas.drawLine({cursor, barBottomY}, {barRight, barBottomY}, theme.tabOutline, 1.0f);
+                    }
+                } else {
+                    canvas.drawLine({bar.x, barBottomY}, {bar.x + bar.width, barBottomY}, theme.tabOutline, 1.0f);
+                }
             }
 
             for (size_t i = 0; i < node->children.size(); ++i) {
@@ -232,15 +316,26 @@ void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const Dock
                         theme.tabCornerRadius,
                         theme.drawTabAccent);
                 } else {
-                    DrawHorizontalTabShape(
-                        canvas,
-                        tabRect,
-                        tabBg,
-                        theme.tabOutline,
-                        isActive,
-                        theme.tabAccent,
-                        theme.tabCornerRadius,
-                        theme.drawTabAccent);
+                    if (theme.drawSteppedTabShape) {
+                        DrawHorizontalSteppedTabShape(
+                            canvas,
+                            tabRect,
+                            tabBg,
+                            theme.tabOutline,
+                            barBottomY,
+                            theme.tabShoulderWidth,
+                            theme.tabLiftPx);
+                    } else {
+                        DrawHorizontalTabShape(
+                            canvas,
+                            tabRect,
+                            tabBg,
+                            theme.tabOutline,
+                            isActive,
+                            theme.tabAccent,
+                            theme.tabCornerRadius,
+                            theme.drawTabAccent);
+                    }
                 }
 
                 const DockLayout::Node* child = node->children[i].get();

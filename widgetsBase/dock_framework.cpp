@@ -555,7 +555,13 @@ DFRect DockWidget::clientAreaRect(const DFRect& contentBounds) const
     if (!childrenFloat_) {
         return contentBounds;
     }
-    const float pad = std::max(0.0f, clientAreaPadding_);
+    float pad = std::max(0.0f, clientAreaPadding_);
+    const auto& theme = CurrentTheme();
+    // Tab-hosted widgets need slightly more inset so rounded client frames
+    // do not visually stick to the tab container edge.
+    if (isDocked() && isTabified()) {
+        pad += std::max(0.0f, theme.tabClientAreaExtraPadding);
+    }
     return {
         contentBounds.x + pad,
         contentBounds.y + pad,

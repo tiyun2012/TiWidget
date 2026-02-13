@@ -26,6 +26,8 @@ struct DockTheme {
     DFColor tabTextInactive{DFColorFromHex(0xA2A2AA)};
     float tabBarHeight = 16.0f;
     float tabCornerRadius = 4.0f;
+    float tabShoulderWidth = 6.0f;
+    float tabLiftPx = 4.0f;
     float tabFontScale = 0.5f;
     float fontPixelScale = 1.8f;
     bool smoothFont = true;
@@ -41,6 +43,7 @@ struct DockTheme {
     DFColor clientAreaFill{DFColorFromHex(0x413E49)};
     DFColor clientAreaBorder{DFColorFromHex(0x5C3E94)};
     float clientAreaPadding = 2.0f;
+    float tabClientAreaExtraPadding = 1.5f;
     float clientAreaCornerRadius = 3.333f;
     float clientAreaBorderThickness = 0.75f;
 
@@ -55,6 +58,7 @@ struct DockTheme {
     bool drawUndockIcon = false;
     bool drawWidgetHoverOutline = false;
     bool drawTabAccent = false;
+    bool drawSteppedTabShape = true;
 };
 
 inline DockTheme MakeDarkTheme()
