@@ -132,6 +132,11 @@ public:
         dx12->drawRectangle({b.x, b.y + b.height - 1.0f, b.width, 1.0f}, frameColor);
         dx12->drawRectangle({b.x, b.y, 1.0f, b.height}, frameColor);
         dx12->drawRectangle({b.x + b.width - 1.0f, b.y, 1.0f, b.height}, frameColor);
+        if (tabHosted) {
+            // Bridge top corners to the tab-strip baseline so tab + pane read as one shape.
+            dx12->drawRectangle({b.x, b.y - 1.0f, 1.0f, 1.0f}, frameColor);
+            dx12->drawRectangle({b.x + b.width - 1.0f, b.y - 1.0f, 1.0f, 1.0f}, frameColor);
+        }
 
         if (content()) {
             const DFRect client = clientAreaRect(contentHost);
