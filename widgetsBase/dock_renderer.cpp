@@ -2,6 +2,7 @@
 #include "icon_module.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <string>
 
@@ -62,25 +63,25 @@ void DrawHorizontalTabShape(
         return;
     }
 
-    const float radius = std::max(0.0f, std::min(cornerRadius, std::min(tabRect.width, tabRect.height) * 0.48f));
-    canvas.drawRoundedRectangle(tabRect, radius, fill);
-    canvas.drawRoundedRectangleOutline(tabRect, radius, outline, 1.0f);
+    // Active tabs extend 1px below the strip baseline; no separate merge overpaint.
+    const float maxBottomY = tabRect.y + tabRect.height;
+    const float targetBottomY = active ? (paneBaselineY + 1.0f) : paneBaselineY;
+    const float bottomY = std::clamp(targetBottomY, tabRect.y + 1.0f, maxBottomY);
+    const DFRect shapeRect{
+        tabRect.x,
+        tabRect.y,
+        tabRect.width,
+        std::max(1.0f, bottomY - tabRect.y + 1.0f)
+    };
 
-    if (active) {
-        // Open the lower edge so the active tab and pane border read as one object.
-        const float mergeY = std::max(tabRect.y, std::min(paneBaselineY, tabRect.y + tabRect.height - 1.0f));
-        const float mergeH = std::max(1.0f, (tabRect.y + tabRect.height) - mergeY);
-        const float mergeX = tabRect.x + 1.0f;
-        const float mergeW = std::max(0.0f, tabRect.width - 2.0f);
-        if (mergeW > 0.0f) {
-            canvas.drawRectangle({mergeX, mergeY, mergeW, mergeH}, fill);
-        }
-    }
+    const float radius = std::max(0.0f, std::min(cornerRadius, std::min(shapeRect.width, shapeRect.height) * 0.48f));
+    canvas.drawRoundedRectangle(shapeRect, radius, fill);
+    canvas.drawRoundedRectangleOutline(shapeRect, radius, outline, 1.0f);
 
     if (active && drawAccent) {
-        const float accentX = tabRect.x + 1.0f;
-        const float accentW = std::max(0.0f, tabRect.width - 2.0f);
-        canvas.drawRectangle({accentX, tabRect.y + 1.0f, accentW, 2.0f}, accent);
+        const float accentX = shapeRect.x + 1.0f;
+        const float accentW = std::max(0.0f, shapeRect.width - 2.0f);
+        canvas.drawRectangle({accentX, shapeRect.y + 1.0f, accentW, 2.0f}, accent);
     }
 }
 
@@ -129,33 +130,32 @@ void DrawHorizontalSteppedTabShape(
     const float shoulderRun = std::clamp(shoulderWidth, 2.0f, tabRect.width * 0.25f);
     const float leftTopX = left + shoulderRun;
     const float rightTopX = right - shoulderRun;
-    const float maxBottomY = tabRect.y + tabRect.height - 1.0f;
-    const float inactiveBottomY = std::max(topY + 1.0f, std::min(maxBottomY, baseY - 1.0f));
-    const float activeBottomY = std::max(topY + 1.0f, std::min(maxBottomY, baseY + 1.0f));
-    const float bottomY = active ? activeBottomY : inactiveBottomY;
-    const float shoulderDrop = std::clamp(liftPx * 0.5f, 1.0f, std::max(1.0f, bottomY - topY - 1.0f));
-    const float lowerY = std::min(bottomY, topY + shoulderDrop);
+    const float inactiveMaxBottomY = tabRect.y + tabRect.height - 1.0f;
+    const float activeMaxBottomY = tabRect.y + tabRect.height;
+    const float bottomY = active
+        ? std::clamp(baseY + 1.0f, topY + 1.0f, activeMaxBottomY)
+        : std::clamp(baseY, topY + 1.0f, inactiveMaxBottomY);
+    const float slopeH = std::max(1.0f, bottomY - topY);
+    const int yStart = static_cast<int>(topY);
+    const int yEnd = static_cast<int>(bottomY);
 
-    // Approximate a stepped tab fill (center cap + lower body).
-    canvas.drawRectangle(
-        {leftTopX, topY, std::max(1.0f, rightTopX - leftTopX), std::max(1.0f, bottomY - topY + 1.0f)},
-        fill);
-    canvas.drawRectangle(
-        {left, lowerY, std::max(1.0f, right - left), std::max(1.0f, bottomY - lowerY + 1.0f)},
-        fill);
+    // Fill as one coherent trapezoid to avoid "rectangle behind tab" artifacts.
+    for (int y = yStart; y <= yEnd; ++y) {
+        const float yy = std::clamp(static_cast<float>(y), topY, bottomY);
+        const float t = std::clamp((yy - topY) / slopeH, 0.0f, 1.0f);
+        const float lx = leftTopX + (left - leftTopX) * t;
+        const float rx = rightTopX + (right - rightTopX) * t;
+        const float x = std::min(lx, rx);
+        const float w = std::max(1.0f, std::abs(rx - lx));
+        canvas.drawRectangle({x, yy, w, 1.0f}, fill);
+    }
 
-    // Outline: /----\ with an open lower edge for the active tab.
+    // Outline: /----\ ; active tabs skip bottom edge and rely on geometric overlap.
     canvas.drawLine({left, bottomY}, {leftTopX, topY}, outline, 1.0f);
     canvas.drawLine({leftTopX, topY}, {rightTopX, topY}, outline, 1.0f);
     canvas.drawLine({rightTopX, topY}, {right, bottomY}, outline, 1.0f);
     if (!active) {
         canvas.drawLine({left, bottomY}, {right, bottomY}, outline, 1.0f);
-    } else {
-        const float mergeX = left + 1.0f;
-        const float mergeW = std::max(0.0f, right - left - 2.0f);
-        if (mergeW > 0.0f) {
-            canvas.drawRectangle({mergeX, baseY, mergeW, std::max(1.0f, bottomY - baseY + 1.0f)}, fill);
-        }
     }
 }
 
@@ -167,20 +167,32 @@ void DrawVerticalTabShape(
     bool active,
     const DFColor& accent,
     float cornerRadius,
-    bool drawAccent)
+    bool drawAccent,
+    float paneDividerX)
 {
     if (tabRect.width <= 2.0f || tabRect.height <= 2.0f) {
         return;
     }
 
-    const float radius = std::max(0.0f, std::min(cornerRadius, std::min(tabRect.width, tabRect.height) * 0.48f));
-    canvas.drawRoundedRectangle(tabRect, radius, fill);
-    canvas.drawRoundedRectangleOutline(tabRect, radius, outline, 1.0f);
+    // Active tabs extend 1px into the pane divider; no separate merge overpaint.
+    const float maxRightX = tabRect.x + tabRect.width + 1.0f;
+    const float targetRightX = active ? (paneDividerX + 1.0f) : paneDividerX;
+    const float rightX = std::clamp(targetRightX, tabRect.x + 1.0f, maxRightX);
+    const DFRect shapeRect{
+        tabRect.x,
+        tabRect.y,
+        std::max(1.0f, rightX - tabRect.x + 1.0f),
+        tabRect.height
+    };
+
+    const float radius = std::max(0.0f, std::min(cornerRadius, std::min(shapeRect.width, shapeRect.height) * 0.48f));
+    canvas.drawRoundedRectangle(shapeRect, radius, fill);
+    canvas.drawRoundedRectangleOutline(shapeRect, radius, outline, 1.0f);
 
     if (active && drawAccent) {
-        const float accentY = tabRect.y + 1.0f;
-        const float accentH = std::max(0.0f, tabRect.height - 2.0f);
-        canvas.drawRectangle({tabRect.x + tabRect.width - 3.0f, accentY, 2.0f, accentH}, accent);
+        const float accentY = shapeRect.y + 1.0f;
+        const float accentH = std::max(0.0f, shapeRect.height - 2.0f);
+        canvas.drawRectangle({shapeRect.x + shapeRect.width - 3.0f, accentY, 2.0f, accentH}, accent);
     }
 }
 
@@ -284,12 +296,6 @@ void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const Dock
         if (bar.width > 1.0f && bar.height > 1.0f) {
             const float tabFontScale = std::clamp(theme.tabFontScale, 0.3f, 2.0f);
             const float barBottomY = bar.y + bar.height - 1.0f;
-            const DFRect activeTabRect = DockLayout::TabRectForIndex(
-                *node,
-                node->bounds,
-                static_cast<size_t>(active),
-                node->children.size());
-            const bool hasActiveTabRect = activeTabRect.width > 1.0f && activeTabRect.height > 1.0f;
             canvas.drawRectangle(bar, theme.tabStrip);
             const DFColor stripHi = ShiftColor(theme.tabStrip, 0.05f);
             const DFColor stripLo = ShiftColor(theme.tabStrip, -0.04f);
@@ -299,60 +305,31 @@ void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const Dock
                 canvas.drawLine({bar.x, bar.y + bar.height - 1.0f}, {bar.x + bar.width, bar.y + bar.height - 1.0f}, stripLo, 1.0f);
             } else {
                 canvas.drawLine({bar.x, bar.y}, {bar.x + bar.width, bar.y}, stripHi, 1.0f);
-                const float barRight = bar.x + bar.width;
-                if (hasActiveTabRect) {
-                    const float mergePad = theme.drawSteppedTabShape
-                        ? std::clamp(theme.tabShoulderWidth * 0.6f, 1.0f, 6.0f)
-                        : 1.0f;
-                    const float gapStart = std::clamp(activeTabRect.x - mergePad, bar.x, barRight);
-                    const float gapEnd = std::clamp(activeTabRect.x + activeTabRect.width + mergePad, bar.x, barRight);
-                    if (gapStart > bar.x) {
-                        canvas.drawLine({bar.x, barBottomY}, {gapStart, barBottomY}, theme.tabOutline, 1.0f);
-                    }
-                    if (gapEnd < barRight) {
-                        canvas.drawLine({gapEnd, barBottomY}, {barRight, barBottomY}, theme.tabOutline, 1.0f);
-                    }
-                } else {
-                    canvas.drawLine({bar.x, barBottomY}, {bar.x + bar.width, barBottomY}, theme.tabOutline, 1.0f);
-                }
+                canvas.drawLine({bar.x, barBottomY}, {bar.x + bar.width, barBottomY}, theme.tabOutline, 1.0f);
             }
 
-            for (size_t i = 0; i < node->children.size(); ++i) {
-                DFRect tabRect = DockLayout::TabRectForIndex(*node, node->bounds, i, node->children.size());
-                if (tabRect.width <= 1.0f || tabRect.height <= 1.0f) {
-                    continue;
-                }
+            const float paneDividerX = bar.x + bar.width - 1.0f;
+            for (int pass = 0; pass < 2; ++pass) {
+                const bool drawActive = (pass == 1);
+                for (size_t i = 0; i < node->children.size(); ++i) {
+                    DFRect tabRect = DockLayout::TabRectForIndex(*node, node->bounds, i, node->children.size());
+                    if (tabRect.width <= 1.0f || tabRect.height <= 1.0f) {
+                        continue;
+                    }
 
-                const bool isActive = static_cast<int>(i) == active;
-                const bool isHover = hasMousePos_ && tabRect.contains(mousePos_);
-                DFColor tabBg = isActive ? theme.tabActive : theme.tabInactive;
-                if (isHover && !isActive) {
-                    tabBg = ShiftColor(tabBg, 0.06f);
-                }
+                    const bool isActive = static_cast<int>(i) == active;
+                    if (isActive != drawActive) {
+                        continue;
+                    }
 
-                if (verticalStrip) {
-                    DrawVerticalTabShape(
-                        canvas,
-                        tabRect,
-                        tabBg,
-                        theme.tabOutline,
-                        isActive,
-                        theme.tabAccent,
-                        theme.tabCornerRadius,
-                        theme.drawTabAccent);
-                } else {
-                    if (theme.drawSteppedTabShape) {
-                        DrawHorizontalSteppedTabShape(
-                            canvas,
-                            tabRect,
-                            tabBg,
-                            theme.tabOutline,
-                            barBottomY,
-                            theme.tabShoulderWidth,
-                            theme.tabLiftPx,
-                            isActive);
-                    } else {
-                        DrawHorizontalTabShape(
+                    const bool isHover = hasMousePos_ && tabRect.contains(mousePos_);
+                    DFColor tabBg = isActive ? theme.tabActive : theme.tabInactive;
+                    if (isHover && !isActive) {
+                        tabBg = ShiftColor(tabBg, 0.06f);
+                    }
+
+                    if (verticalStrip) {
+                        DrawVerticalTabShape(
                             canvas,
                             tabRect,
                             tabBg,
@@ -361,27 +338,50 @@ void DockRenderer::renderNode(Canvas& canvas, DockLayout::Node* node, const Dock
                             theme.tabAccent,
                             theme.tabCornerRadius,
                             theme.drawTabAccent,
-                            barBottomY);
+                            paneDividerX);
+                    } else {
+                        if (theme.drawSteppedTabShape) {
+                            DrawHorizontalSteppedTabShape(
+                                canvas,
+                                tabRect,
+                                tabBg,
+                                theme.tabOutline,
+                                barBottomY,
+                                theme.tabShoulderWidth,
+                                theme.tabLiftPx,
+                                isActive);
+                        } else {
+                            DrawHorizontalTabShape(
+                                canvas,
+                                tabRect,
+                                tabBg,
+                                theme.tabOutline,
+                                isActive,
+                                theme.tabAccent,
+                                theme.tabCornerRadius,
+                                theme.drawTabAccent,
+                                barBottomY);
+                        }
                     }
-                }
 
-                const DockLayout::Node* child = node->children[i].get();
-                const DockWidget* widget = ResolveWidgetForLabel(child);
-                const std::string label = widget ? widget->title() : std::string("Tab");
-                DFColor textColor = isActive ? theme.tabTextActive : theme.tabTextInactive;
-                if (isHover && !isActive) {
-                    textColor = ShiftColor(textColor, 0.06f);
-                }
+                    const DockLayout::Node* child = node->children[i].get();
+                    const DockWidget* widget = ResolveWidgetForLabel(child);
+                    const std::string label = widget ? widget->title() : std::string("Tab");
+                    DFColor textColor = isActive ? theme.tabTextActive : theme.tabTextInactive;
+                    if (isHover && !isActive) {
+                        textColor = ShiftColor(textColor, 0.06f);
+                    }
 
-                if (verticalStrip) {
-                    DrawVerticalLabel(canvas, tabRect, label, textColor, tabFontScale, theme.smoothFont);
-                } else {
-                    const float textLeft = tabRect.x + 9.0f;
-                    const float textTop = DFTextBaselineYForRect(tabRect, tabFontScale);
-                    const float textMax = std::max(0.0f, tabRect.width - 16.0f);
-                    const std::string clipped = ClipTextForWidth(label, textMax, true, tabFontScale);
-                    if (!clipped.empty()) {
-                        DFDrawText(canvas, textLeft, textTop, clipped, textColor, tabFontScale, theme.smoothFont);
+                    if (verticalStrip) {
+                        DrawVerticalLabel(canvas, tabRect, label, textColor, tabFontScale, theme.smoothFont);
+                    } else {
+                        const float textLeft = tabRect.x + 9.0f;
+                        const float textTop = DFTextBaselineYForRect(tabRect, tabFontScale);
+                        const float textMax = std::max(0.0f, tabRect.width - 16.0f);
+                        const std::string clipped = ClipTextForWidth(label, textMax, true, tabFontScale);
+                        if (!clipped.empty()) {
+                            DFDrawText(canvas, textLeft, textTop, clipped, textColor, tabFontScale, theme.smoothFont);
+                        }
                     }
                 }
             }
